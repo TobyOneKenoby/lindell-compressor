@@ -1,0 +1,28 @@
+cmake_minimum_required(VERSION 3.22)
+project(LindellRackCompressor VERSION 0.1.0 LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+enable_testing()
+add_executable(compressor_tests Tests/CoreTests.cpp)
+add_test(NAME compressor COMMAND compressor_tests)
+option(LRC_CORE_ONLY "Build portable DSP tests only" OFF)
+if(LRC_CORE_ONLY)
+ return()
+endif()
+set(JUCE_PATH "" CACHE PATH "JUCE 8.0.15 source directory")
+add_subdirectory("${JUCE_PATH}" "${CMAKE_BINARY_DIR}/JUCE")
+juce_add_plugin(LindellRackCompressor
+ COMPANY_NAME "Lindell Plugins" BUNDLE_ID "com.lindellplugins.rackcompressor.dev"
+ PLUGIN_MANUFACTURER_CODE Lndl PLUGIN_CODE Lrct PRODUCT_NAME "Lindell Rack Compressor"
+ FORMATS VST3 IS_SYNTH FALSE NEEDS_MIDI_INPUT FALSE NEEDS_MIDI_OUTPUT FALSE
+ COPY_PLUGIN_AFTER_BUILD FALSE)
+target_sources(LindellRackCompressor PRIVATE Source/PluginProcessor.cpp Source/PluginEditor.cpp)
+target_compile_definitions(LindellRackCompressor PUBLIC JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_VST3_CAN_REPLACE_VST2=0)
+target_link_libraries(LindellRackCompressor PRIVATE juce::juce_audio_utils PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
+option(LRC_BUILD_SMOKE_HOST "Build VST3 integration test host" OFF)
+if(LRC_BUILD_SMOKE_HOST)
+ juce_add_console_app(compressor_smoke)
+ target_sources(compressor_smoke PRIVATE Tests/PluginSmoke.cpp)
+ target_compile_definitions(compressor_smoke PRIVATE JUCE_PLUGINHOST_VST3=1 JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
+ target_link_libraries(compressor_smoke PRIVATE juce::juce_audio_utils juce::juce_recommended_config_flags)
+endif()

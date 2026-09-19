@@ -1,0 +1,6 @@
+build/
+external/
+release/
+.DS_Store
+*.zip
+Lindell-Rack-Preview.png

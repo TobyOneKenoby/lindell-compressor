@@ -1,0 +1,76 @@
+name: Build Mac VST3
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: mac-vst3-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 35
+    steps:
+      - name: Checkout plugin
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Checkout JUCE 8.0.15
+        uses: actions/checkout@v6
+        with:
+          repository: juce-framework/JUCE
+          ref: 8.0.15
+          path: external/JUCE
+          persist-credentials: false
+      - name: Configure universal Mac build
+        run: |
+          cmake -S . -B build -G Xcode \
+            -DJUCE_PATH="$GITHUB_WORKSPACE/external/JUCE" \
+            -DLRC_BUILD_SMOKE_HOST=ON \
+            '-DCMAKE_OSX_ARCHITECTURES=arm64;x86_64' \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET=12.0
+      - name: Build plugin and tests
+        run: |
+          cmake --build build --config Release --parallel 3 \
+            --target LindellRackCompressor_VST3 compressor_tests compressor_smoke
+      - name: Test compressor DSP
+        run: ctest --test-dir build -C Release --output-on-failure
+      - name: Sign and verify development bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          PLUGIN='build/LindellRackCompressor_artefacts/Release/VST3/Lindell Rack Compressor.vst3'
+          BINARY="$PLUGIN/Contents/MacOS/Lindell Rack Compressor"
+          test -f "$BINARY"
+          lipo -verify_arch arm64 x86_64 "$BINARY"
+          codesign --force --sign - --timestamp=none "$PLUGIN"
+          codesign --verify --strict --verbose=2 "$PLUGIN"
+      - name: Load the actual VST3 and test bypass and compression
+        shell: bash
+        run: |
+          set -euo pipefail
+          build/compressor_smoke_artefacts/Release/compressor_smoke \
+            "$GITHUB_WORKSPACE/build/LindellRackCompressor_artefacts/Release/VST3/Lindell Rack Compressor.vst3"
+      - name: Package download
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          ditto 'build/LindellRackCompressor_artefacts/Release/VST3/Lindell Rack Compressor.vst3' \
+            'release/Lindell Rack Compressor.vst3'
+          cp INSTALL-PLUGIN.txt release/
+          cp Lindell-Rack-Preview.png release/
+          printf 'Source commit: %s\nJUCE commit: %s\n' "$GITHUB_SHA" "$(git -C external/JUCE rev-parse HEAD)" > release/BUILD-INFO.txt
+          ditto -c -k --sequesterRsrc --keepParent release Lindell-Mac-VST3.zip
+          shasum -a 256 Lindell-Mac-VST3.zip > Lindell-Mac-VST3.zip.sha256
+      - name: Downloadable VST3
+        uses: actions/upload-artifact@v7
+        with:
+          name: Lindell-Mac-VST3-${{ github.run_number }}
+          path: |
+            Lindell-Mac-VST3.zip
+            Lindell-Mac-VST3.zip.sha256
+          if-no-files-found: error
+          retention-days: 14

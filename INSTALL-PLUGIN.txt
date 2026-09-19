@@ -1,0 +1,19 @@
+LINDELL RACK COMPRESSOR — macOS development test
+
+1. Quit REAPER.
+2. In Finder choose Go > Go to Folder and enter:
+   ~/Library/Audio/Plug-Ins/VST3/
+   Create the VST3 folder if necessary.
+3. Copy the entire Lindell Rack Compressor.vst3 bundle into that folder.
+4. Open REAPER. Under Settings/Preferences > Plug-ins > VST, rescan plugins.
+5. Insert VST3: Lindell Rack Compressor on a track.
+
+Start with Mix 100%, Output 0 dB, Threshold -18 dBFS, Ratio 4:1.
+Use a modest listening level. This compressor is not a peak limiter.
+
+The test plugin is ad-hoc signed, not Apple Developer ID signed or notarized.
+macOS may block a downloaded build. If it does, retain the exact warning
+for troubleshooting. Do not disable Gatekeeper globally.
+
+This download contains the complete VST3 bundle, not an installer.
+macOS 12 or later; Apple Silicon and Intel architectures are included.
