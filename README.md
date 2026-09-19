@@ -1,4 +1,4 @@
-# Lindell Rack Compressor — test build 0.1.0
+# Lindell Rack Compressor — test build 0.1.1
 
 A native JUCE VST3 compressor prototype for REAPER on macOS. Original vector-drawn 19-inch rack-style panel branded **Lindell Plugins**. This is a behavioral compressor inspired by the supplied 160XT schematic and 160A front panel, not a component-accurate or measured hardware emulation. No original logo or photograph is embedded.
 
@@ -12,7 +12,7 @@ A native JUCE VST3 compressor prototype for REAPER on macOS. Original vector-dra
 - Soft knee: 6 dB knee when on, hard knee when off.
 - Bypass: returns to dry input with a brief smooth transition.
 - Knobs: vertical drag, Shift for finer adjustment, double-click reset, editable numeric values.
-- Separate input/output peak and gain-reduction LED meters. Numeric readings update five times a second.
+- Blue brushed-aluminium panel, silver knobs and illuminated analog-style needle meter. Select Input, Output or Gain Reduction; input/output display uses smoothed RMS power, with 0 VU referenced to -18 dBFS (not a certified VU instrument). Independent output peak lamp.
 
 Mono and stereo support. Stereo uses linked maximum channel power, so opposite-polarity channels cannot cancel the detector. RMS detector and program-dependent attack/release are initial tuning choices, not measured 160XT time constants. No clipping or analog saturation is added. This is a compressor, not a brickwall peak limiter. All controls are host-automatable and saved in DAW state.
 

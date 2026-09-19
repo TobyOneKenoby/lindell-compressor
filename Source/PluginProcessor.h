@@ -7,6 +7,7 @@ public:
  Processor();
  juce::AudioProcessorValueTreeState state;
  std::atomic<float> inputDb{-100},outputDb{-100},grDb{0};
+ std::atomic<float> inputVuDb{-100},outputVuDb{-100};
  lindell::Compressor core;
  lindell::Settings settings() const;
  void prepareToPlay(double,int) override;
@@ -25,5 +26,5 @@ public:
  void setStateInformation(const void*,int) override;
 private:
  std::array<std::atomic<float>*,7> values{};
- float inMeter=0,outMeter=0; double meterDecay=0;
+ float inMeter=0,outMeter=0; double meterDecay=0, inputPower=0, outputPower=0;
 };
