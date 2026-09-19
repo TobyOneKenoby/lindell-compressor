@@ -22,7 +22,7 @@ target_link_libraries(LindellRackCompressor PRIVATE juce::juce_audio_utils PUBLI
 option(LRC_BUILD_SMOKE_HOST "Build VST3 integration test host" OFF)
 if(LRC_BUILD_SMOKE_HOST)
  juce_add_console_app(compressor_smoke)
- target_sources(compressor_smoke PRIVATE Tests/PluginSmoke.cpp)
+ target_sources(compressor_smoke PRIVATE Tests/PluginSmoke.cpp Source/PluginProcessor.cpp Source/PluginEditor.cpp)
  target_compile_definitions(compressor_smoke PRIVATE JUCE_PLUGINHOST_VST3=1 JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0)
  target_link_libraries(compressor_smoke PRIVATE juce::juce_audio_utils juce::juce_recommended_config_flags)
 endif()
