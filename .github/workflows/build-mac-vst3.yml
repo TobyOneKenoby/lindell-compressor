@@ -44,7 +44,7 @@ jobs:
           PLUGIN='build/LindellRackCompressor_artefacts/Release/VST3/Lindell Rack Compressor.vst3'
           BINARY="$PLUGIN/Contents/MacOS/Lindell Rack Compressor"
           test -f "$BINARY"
-          lipo -verify_arch arm64 x86_64 "$BINARY"
+          lipo "$BINARY" -verify_arch arm64 x86_64
           codesign --force --sign - --timestamp=none "$PLUGIN"
           codesign --verify --strict --verbose=2 "$PLUGIN"
       - name: Load the actual VST3 and test bypass and compression
