@@ -11,6 +11,16 @@ int main(int argc,char** argv){juce::ScopedJuceInitialiser_GUI init;try{
  for(int block=0;block<10;++block){for(int ch=0;ch<2;++ch)for(int i=0;i<256;++i)b.setSample(ch,i,.25f);p->processBlock(b,midi);for(int ch=0;ch<2;++ch)for(int i=0;i<256;++i)require(b.getSample(ch,i)==.25f,"Dry must null");}
  set("Mix",1);double power=0;for(int block=0;block<500;++block){for(int ch=0;ch<2;++ch)for(int i=0;i<256;++i)b.setSample(ch,i,.5f*std::sin(juce::MathConstants<float>::twoPi*1000*(float)(block*256+i)/48000));p->processBlock(b,midi);if(block>400)for(int i=0;i<256;++i)power+=b.getSample(0,i)*b.getSample(0,i);}
  require(power/(99*256)<.05,"Compression must reduce power");juce::MemoryBlock state;p->getStateInformation(state);require(state.getSize()>0,"State missing");p->setStateInformation(state.getData(),(int)state.getSize());
+ set("Attack",2.f/6);set("Release",3.f/5);p->getStateInformation(state);set("Attack",1);set("Release",0);p->setStateInformation(state.getData(),(int)state.getSize());
+ for(auto* parameter:p->getParameters()){
+  if(parameter->getName(100)=="Attack")require(std::abs(parameter->getValue()-2.f/6)<.001f,"Attack state recall");
+  if(parameter->getName(100)=="Release")require(std::abs(parameter->getValue()-3.f/5)<.001f,"Release state recall");
+ }
+ Processor migration;auto oldState=migration.state.copyState();
+ oldState.removeChild(oldState.getChildWithProperty("id","attack"),nullptr);oldState.removeChild(oldState.getChildWithProperty("id","release"),nullptr);
+ juce::MemoryBlock legacyState;auto legacyXml=oldState.createXml();juce::AudioProcessor::copyXmlToBinary(*legacyXml,legacyState);
+ migration.setStateInformation(legacyState.getData(),(int)legacyState.getSize());
+ require(migration.settings().attackMs==-1&&migration.settings().releaseSeconds==-1,"Old project retains original timing");
  auto editor=std::unique_ptr<juce::AudioProcessorEditor>(p->createEditorIfNeeded());require(editor!=nullptr,"Editor missing");editor->setVisible(true);
  // VST3 native NSView embedding is opaque to host-side JUCE snapshots.
  // Render the identical Editor source directly for visual verification.
@@ -20,5 +30,5 @@ int main(int argc,char** argv){juce::ScopedJuceInitialiser_GUI init;try{
  juce::Image screenshot(juce::Image::ARGB,preview->getWidth(),preview->getHeight(),true,juce::SoftwareImageType());
  {juce::Graphics graphics(screenshot);preview->paintEntireComponent(graphics,true);}
  require(screenshot.getPixelAt(1038,160).getBrightness()>.4f,"Meter preview must not be blank");
- juce::File file=juce::File::getCurrentWorkingDirectory().getChildFile("Lindell-Rack-Preview.png");auto stream=file.createOutputStream();require(stream!=nullptr,"Preview file");juce::PNGImageFormat png;require(png.writeImageToStream(screenshot,*stream),"Preview encoding");stream.reset();editor.reset();p->releaseResources();std::cout<<"PASS: VST3 load, dry null, compression, state, editor render\n";
+ juce::File file=juce::File::getCurrentWorkingDirectory().getChildFile("Lindell-Rack-Preview.png");auto stream=file.createOutputStream();require(stream!=nullptr,"Preview file");juce::PNGImageFormat png;require(png.writeImageToStream(screenshot,*stream),"Preview encoding");stream.reset();editor.reset();p->releaseResources();std::cout<<"PASS: VST3 load, dry null, compression, state, timing recall, old-project migration, editor render\n";
  }catch(const std::exception& e){std::cerr<<e.what()<<'\n';return 1;}}

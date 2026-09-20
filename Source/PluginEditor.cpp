@@ -20,11 +20,12 @@ void screw(juce::Graphics& g,float x,float y){
 }
 }
 juce::Font RackLook::getLabelFont(juce::Label&){return font(14.f);}
-void RackLook::drawRotarySlider(juce::Graphics& g,int x,int y,int w,int h,float pos,float start,float end,juce::Slider&){
+void RackLook::drawRotarySlider(juce::Graphics& g,int x,int y,int w,int h,float pos,float start,float end,juce::Slider& slider){
  const float diameter=(float)std::min(w,h)-38.f;
  const juce::Point<float> c((float)x+(float)w*.5f,(float)y+(float)h*.5f);
  const float radius=diameter*.5f;
- for(int i=0;i<=30;++i){float a=start+(end-start)*(float)i/30.f;bool major=i%5==0;auto a1=radial(c,radius+9,a),a2=radial(c,radius+(major?16.f:12.f),a);g.setColour(ink.withAlpha(major?.9f:.45f));g.drawLine({a1,a2},major?1.5f:.8f);}
+ const int intervals=slider.getProperties().contains("steps")?(int)slider.getProperties()["steps"]-1:30;
+ for(int i=0;i<=intervals;++i){float a=start+(end-start)*(float)i/(float)intervals;bool major=intervals!=30||i%5==0;auto a1=radial(c,radius+9,a),a2=radial(c,radius+(major?16.f:12.f),a);g.setColour(ink.withAlpha(major?.9f:.45f));g.drawLine({a1,a2},major?1.5f:.8f);}
  juce::Rectangle<float> r(c.x-radius,c.y-radius,diameter,diameter);
  for(int i=8;i>0;--i){g.setColour(juce::Colours::black.withAlpha(.025f*(float)(9-i)));g.fillEllipse(r.expanded((float)i*.55f).translated(1,4));}
  g.setGradientFill(juce::ColourGradient(juce::Colour(0xff75909f),r.getTopLeft(),juce::Colour(0xff03080d),r.getBottomRight(),false));g.fillEllipse(r);
@@ -55,11 +56,17 @@ void RackLook::drawToggleButton(juce::Graphics& g,juce::ToggleButton& b,bool hov
 }
 Editor::Editor(Processor& p):AudioProcessorEditor(p),processor(p){
  setLookAndFeel(&look);
- const char* ids[]={"threshold","ratio","output","hpf","mix"};
- const double defaults[]={-18,4,0,30,100};
+ const char* ids[]={"threshold","ratio","output","hpf","mix","attack","release"};
+ const double defaults[]={-18,4,0,30,100,5,5};
  for(size_t i=0;i<knobs.size();++i){auto& k=knobs[i];k.setSliderStyle(juce::Slider::RotaryVerticalDrag);k.setRotaryParameters(pi*1.25f,pi*2.75f,true);k.setTextBoxStyle(juce::Slider::TextBoxBelow,false,100,23);k.setDoubleClickReturnValue(true,defaults[i]);k.setColour(juce::Slider::textBoxTextColourId,ink);k.setColour(juce::Slider::textBoxBackgroundColourId,juce::Colour(0xff10283b));k.setColour(juce::Slider::textBoxOutlineColourId,juce::Colour(0xff446073).withAlpha(.45f));k.setTooltip("Drag to adjust. Hold Shift for fine control. Double-click to reset; click the value to type.");addAndMakeVisible(k);attachments[i]=std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(p.state,ids[i],k);
  // Set after attachment so JUCE's parameter formatter cannot override display precision.
- k.textFromValueFunction=[i](double v){if(std::abs(v)<.0001)v=0;return juce::String(v,i>=3?0:1)+(i==1?":1":i==3?" Hz":i==4?" %":" dB");};
+ if(i>=5){
+  k.getProperties().set("steps",i==5?7:6);k.setTextBoxStyle(juce::Slider::TextBoxBelow,true,100,23);
+  k.setTooltip(i==5?"Stepped attack. ORIG preserves the original timing; otherwise milliseconds.":"Stepped release in seconds. AUTO adapts recovery to sustained compression; ORIG preserves the original timing.");
+ }
+ k.textFromValueFunction=[i](double v){
+ if(i>=5){const juce::StringArray attack{"ORIG","0.1 ms","0.3 ms","1 ms","3 ms","10 ms","30 ms"},release{"ORIG","0.1 s","0.3 s","0.6 s","1.2 s","AUTO"};const auto& choices=i==5?attack:release;return choices[juce::jlimit(0,choices.size()-1,(int)std::lround(v))];}
+ if(std::abs(v)<.0001)v=0;return juce::String(v,i>=3?0:1)+(i==1?":1":i==3?" Hz":i==4?" %":" dB");};
  k.valueFromTextFunction=[](const juce::String& s){return s.getDoubleValue();};k.updateText();
  }
  addAndMakeVisible(bypass);addAndMakeVisible(knee);bypass.setName("red");
@@ -72,7 +79,8 @@ Editor::~Editor(){stopTimer();setLookAndFeel(nullptr);}
 void Editor::resized(){
  knobs[0].setBounds(225,78,164,186);knobs[1].setBounds(421,57,198,207);knobs[2].setBounds(651,78,164,186);
  knobs[3].setBounds(251,296,112,131);knobs[4].setBounds(677,296,112,131);
- knee.setBounds(407,324,98,81);bypass.setBounds(535,324,98,81);
+ knobs[5].setBounds(393,296,112,131);knobs[6].setBounds(535,296,112,131);
+ knee.setBounds(62,324,64,81);bypass.setBounds(130,324,64,81);
  for(int i=0;i<3;++i)meterButtons[(size_t)i].setBounds(892+i*112,341,86,80);
 }
 void Editor::makePanel(){
@@ -91,9 +99,11 @@ void Editor::makePanel(){
  text(g,"LINDELL",65,175,120,37,28,ink,true);text(g,"P L U G I N S",65,214,120,22,11,ink);
  g.setColour(juce::Colour(0xffd7b884));g.fillRect(88,151,73,3);
  text(g,"RACK",62,278,128,17,11,muted,true);text(g,"COMPRESSOR",62,296,128,18,11,muted,true);
- text(g,"V C A",65,369,120,20,11,juce::Colour(0xffd7b884),true);
+ text(g,"V C A",85,413,85,14,9,juce::Colour(0xffd7b884),true);
  text(g,"THRESHOLD",216,40,182,23,13,ink,true);text(g,"COMPRESSION",415,30,210,23,13,ink,true);text(g,"OUTPUT GAIN",642,40,182,23,13,ink,true);
  text(g,"SIDECHAIN HPF",215,272,184,22,12,ink,true);text(g,"MIX",641,272,184,22,12,ink,true);
+ text(g,"ATTACK",391,272,116,22,12,ink,true);text(g,"RELEASE",533,272,116,22,12,ink,true);
+ text(g,"ms",407,432,84,14,9,muted);text(g,"s / AUTO",549,432,84,14,9,muted);
  text(g,"DETECTOR ONLY",216,432,182,14,9,muted);text(g,"DRY / WET",642,432,182,14,9,muted);
  text(g,"30",225,370,23,14,9);text(g,"300",365,370,30,14,9);text(g,"0",651,370,23,14,9);text(g,"100",791,370,30,14,9);
  text(g,"-60",210,218,30,15,10);text(g,"0",376,218,30,15,10);text(g,"-30",292,65,30,15,10);

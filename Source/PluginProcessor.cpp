@@ -7,12 +7,16 @@ static juce::AudioProcessorValueTreeState::ParameterLayout layout(){
  add("threshold","Threshold",-60,0,-18,1);add("ratio","Ratio",1,20,4,.5f);add("output","Output",-20,20,0,1);
  add("hpf","Sidechain HPF",30,300,30,.5f);add("mix","Mix",0,100,100,1);
  p.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID{"knee",1},"Soft knee",true));
- p.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID{"bypass",1},"Bypass",false));return p;
+ p.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID{"bypass",1},"Bypass",false));
+ p.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID{"attack",1},"Attack",juce::StringArray{"ORIG","0.1 ms","0.3 ms","1 ms","3 ms","10 ms","30 ms"},5));
+ p.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID{"release",1},"Release",juce::StringArray{"ORIG","0.1 s","0.3 s","0.6 s","1.2 s","AUTO"},5));return p;
 }
 Processor::Processor():AudioProcessor(BusesProperties().withInput("Input",juce::AudioChannelSet::stereo(),true).withOutput("Output",juce::AudioChannelSet::stereo(),true)),state(*this,nullptr,"LindellRackState",layout()){
- const char* ids[]={"threshold","ratio","output","hpf","mix","knee","bypass"};for(int i=0;i<7;++i)values[(size_t)i]=state.getRawParameterValue(ids[i]);
+ const char* ids[]={"threshold","ratio","output","hpf","mix","knee","bypass","attack","release"};for(int i=0;i<9;++i)values[(size_t)i]=state.getRawParameterValue(ids[i]);
 }
-lindell::Settings Processor::settings()const{return {values[0]->load(),values[1]->load(),values[2]->load(),values[3]->load(),values[4]->load(),values[5]->load(),values[6]->load()};}
+lindell::Settings Processor::settings()const{
+ static constexpr double attacks[]={-1,.1,.3,1,3,10,30}, releases[]={-1,.1,.3,.6,1.2,0};
+ return {values[0]->load(),values[1]->load(),values[2]->load(),values[3]->load(),values[4]->load(),values[5]->load(),values[6]->load(),attacks[juce::jlimit(0,6,(int)values[7]->load())],releases[juce::jlimit(0,5,(int)values[8]->load())]};}
 void Processor::prepareToPlay(double sr,int){core.prepare(sr,settings());inMeter=outMeter=0;inputPower=outputPower=0;inputVuDb=outputVuDb=-100;meterDecay=std::exp(-1/(.3*sr));setLatencySamples(0);}
 bool Processor::isBusesLayoutSupported(const BusesLayout& l)const{return l.getMainInputChannelSet()==l.getMainOutputChannelSet()&&(l.getMainOutputChannelSet()==juce::AudioChannelSet::mono()||l.getMainOutputChannelSet()==juce::AudioChannelSet::stereo());}
 void Processor::processBlock(juce::AudioBuffer<float>& b,juce::MidiBuffer&){
@@ -26,6 +30,14 @@ void Processor::processBlock(juce::AudioBuffer<float>& b,juce::MidiBuffer&){
  inputDb.store(juce::Decibels::gainToDecibels(inMeter,-100.f));outputDb.store(juce::Decibels::gainToDecibels(outMeter,-100.f));grDb.store(s.bypass>.5?0:static_cast<float>(core.gainReduction()));
 }
 void Processor::getStateInformation(juce::MemoryBlock& b){if(auto xml=state.copyState().createXml())copyXmlToBinary(*xml,b);}
-void Processor::setStateInformation(const void* d,int n){if(auto xml=getXmlFromBinary(d,n))if(xml->hasTagName(state.state.getType()))state.replaceState(juce::ValueTree::fromXml(*xml));}
+void Processor::setStateInformation(const void* d,int n){if(auto xml=getXmlFromBinary(d,n))if(xml->hasTagName(state.state.getType())){
+ auto restored=juce::ValueTree::fromXml(*xml);
+ // Older sessions have no timing parameters. Explicit ORIG migration avoids
+ // changing their sound, even if another preset was loaded first.
+ for(const char* id:{"attack","release"})if(!restored.getChildWithProperty("id",id).isValid()){
+  juce::ValueTree parameter("PARAM");parameter.setProperty("id",id,nullptr);parameter.setProperty("value",0.f,nullptr);restored.addChild(parameter,-1,nullptr);
+ }
+ state.replaceState(restored);
+}}
 juce::AudioProcessorEditor* Processor::createEditor(){return new Editor(*this);}
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter(){return new Processor;}

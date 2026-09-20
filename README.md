@@ -43,3 +43,17 @@ JUCE build:
     ctest --test-dir build -C Release --output-on-failure
 
 Local validation completed: DSP tests at 44.1, 48, 88.2, 96 and 192 kHz; dry null, blend, bypass, stereo/antiphase, detector HPF, static curve, silence. Full JUCE compilation and Mac host tests await the cloud build.
+
+## Version 0.2.0: Attack and Release
+
+Attack: ORIG, 0.1, 0.3, 1, 3, 10, 30 ms. Release: ORIG, 0.1, 0.3, 0.6, 1.2 s, AUTO.
+The stepped ranges are inspired by the familiar SSL bus-compressor controls; this
+is still the Lindell behavioral VCA compressor, not an SSL circuit emulation.
+New instances start at 10 ms / AUTO. Auto combines fast recovery with a slower
+component that builds during sustained compression. The time labels specify
+envelope coefficients; measured response to music depends on level and detector.
+Manual attack uses a fast detector so the shortest settings remain effective.
+
+Old saved states automatically use ORIG for both new controls. Together these
+reproduce the previous DSP sample-for-sample. Existing parameter IDs/order are
+preserved, and both new parameters support host automation and state recall.
