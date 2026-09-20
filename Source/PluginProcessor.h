@@ -25,6 +25,6 @@ public:
  void getStateInformation(juce::MemoryBlock&) override;
  void setStateInformation(const void*,int) override;
 private:
- std::array<std::atomic<float>*,9> values{};
+ std::array<std::atomic<float>*,10> values{};
  float inMeter=0,outMeter=0; double meterDecay=0, inputPower=0, outputPower=0;
 };

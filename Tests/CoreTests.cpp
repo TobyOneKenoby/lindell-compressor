@@ -1,6 +1,7 @@
 #include "../Source/Compressor.h"
 #include <iostream>
 #include "LegacyCompressor.h"
+#include "BlueV02.h"
 #include <stdexcept>
 void check(bool b,const char* m){if(!b)throw std::runtime_error(m);}
 double run(double sr,double hz,lindell::Settings s,bool opposite=false){
@@ -37,7 +38,33 @@ void timingTests(){
   lindell::Settings s;s.attackMs=10;s.releaseSeconds=0;double output=run(sr,1000,s);check(output<.22,"new default compresses");
  }
 }
+void modelTests(){
+ for(double sr:{44100.,48000.,96000.,192000.}){
+  lindell::Settings s;s.attackMs=10;s.releaseSeconds=0;
+  lindell::Compressor c;blue_v02::Compressor old;c.prepare(sr,s);
+  blue_v02::Settings b{s.threshold,s.ratio,s.output,s.hpf,s.mix,s.knee,s.bypass,s.attackMs,s.releaseSeconds};old.prepare(sr,b);
+  for(int n=0;n<40000;++n){float a[]={.7f*(float)std::sin(n*.1),.3f*(float)std::cos(n*.17)},v[]={a[0],a[1]};c.tick(a,2,s);old.tick(v,2,b);check(a[0]==v[0]&&a[1]==v[1],"Blue v0.2 sample exact");}
+  double blue=run(sr,1000,s);s.model=1;double red=run(sr,1000,s);check(std::abs(red-blue)>.005,"Red has distinct audio behavior");
+  check(std::abs(red-run(sr,1000,s,true))<1e-8,"Red antiphase link");
+  s.mix=0;check(std::abs(run(sr,1000,s)-.353553)<.0001,"Red dry null");
+  s.mix=100;s.bypass=1;s.output=20;check(std::abs(run(sr,1000,s)-.353553)<.0001,"Red bypass ignores makeup");
+  s.bypass=0;s.output=0;s.ratio=1;check(std::abs(run(sr,1000,s)-.353553)<.0001,"Red unity ratio");
+  auto recovery=[&](double duration){lindell::Settings r;r.model=1;r.attackMs=.1;r.releaseSeconds=0;r.knee=0;lindell::Compressor d;d.prepare(sr,r);
+   for(int n=0;n<sr*duration;++n){float v[]={n%2?.5f:-.5f};d.tick(v,1,r);}double before=d.gainReduction();
+   for(int n=0;n<sr*.2;++n){float v[]={0};d.tick(v,1,r);}return d.gainReduction()/before;};
+  check(recovery(2)>recovery(.01)+.1,"Red Auto sustains longer after sustained compression");
+  // Same input and always-warm states: crossfade output must remain a convex
+  // combination of the two modes, even when rapidly toggled mid-transition.
+  s.ratio=4;s.model=0;lindell::Compressor mixed,bl,re;mixed.prepare(sr,s);bl.prepare(sr,s);auto rs=s;rs.model=1;re.prepare(sr,rs);
+  double blend=0;
+  for(int n=0;n<20000;++n){s.model=(n/733)%2;blend=s.model?std::min(1.,blend+1/(.04*sr)):std::max(0.,blend-1/(.04*sr));
+   float v[]={.6f*(float)std::sin(n*.17)},v0[]={v[0]},v1[]={v[0]};auto bs=s;bs.model=0;mixed.tick(v,1,s);bl.tick(v0,1,bs);re.tick(v1,1,rs);
+   check(std::isfinite(v[0])&&std::abs(v[0]-(v0[0]+blend*(v1[0]-v0[0])))<1e-6,"Smoothed switch matches continuous engines");
+  }
+ }
+}
 int main(){try{
+ modelTests();
  timingTests();
  check(std::abs(lindell::Compressor::curve(-6,-18,4,0)-9)<1e-12,"4:1 static curve");
  for(double sr:{44100.,48000.,88200.,96000.,192000.}){

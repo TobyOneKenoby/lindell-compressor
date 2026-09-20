@@ -46,6 +46,16 @@ void RackLook::drawRotarySlider(juce::Graphics& g,int x,int y,int w,int h,float 
  }
 }
 void RackLook::drawToggleButton(juce::Graphics& g,juce::ToggleButton& b,bool hover,bool down){
+ if(b.getName()=="model"){
+  const bool on=b.getToggleState();
+  text(g,"BLUE",0,0,60,18,11,on?muted:ink,true);text(g,"RED",70,0,60,18,11,on?ink:muted,true);
+  g.setColour(juce::Colour(0xff070b0f));g.fillRoundedRectangle(30,24,70,30,6);
+  g.setColour(juce::Colour(0xff7e8a90));g.drawRoundedRectangle(30,24,70,30,6,1);
+  const float xx=on?67.f:34.f;
+  g.setGradientFill(juce::ColourGradient(juce::Colour(0xfff1eee5),xx,27,juce::Colour(0xff77848b),xx,50,false));g.fillRoundedRectangle(xx,27,29,24,3);
+  led(g,on?88.f:42.f,65,on?juce::Colour(0xffff5d45):juce::Colour(0xff66bfff),true,3);
+  return;
+ }
  float cx=(float)b.getWidth()*.5f;bool on=b.getToggleState();bool red=b.getName()=="red";
  led(g,cx,9,red?juce::Colour(0xfff26d42):juce::Colour(0xffb9e34c),on,4);
  juce::Rectangle<float> r(cx-13,24,26,26);
@@ -69,6 +79,9 @@ Editor::Editor(Processor& p):AudioProcessorEditor(p),processor(p){
  if(std::abs(v)<.0001)v=0;return juce::String(v,i>=3?0:1)+(i==1?":1":i==3?" Hz":i==4?" %":" dB");};
  k.valueFromTextFunction=[](const juce::String& s){return s.getDoubleValue();};k.updateText();
  }
+ addAndMakeVisible(model);model.setName("model");model.setTooltip("BLUE: original compressor. RED: peak-envelope prototype inspired by Red 3; not a calibrated circuit model.");
+ modelAttach=std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(p.state,"model",model);
+ redMode=p.state.getRawParameterValue("model")->load()>.5f;
  addAndMakeVisible(bypass);addAndMakeVisible(knee);bypass.setName("red");
  bypassAttach=std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(p.state,"bypass",bypass);kneeAttach=std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(p.state,"knee",knee);
  const char* modes[]={"INPUT","OUTPUT","G.R."};
@@ -80,12 +93,14 @@ void Editor::resized(){
  knobs[0].setBounds(225,78,164,186);knobs[1].setBounds(421,57,198,207);knobs[2].setBounds(651,78,164,186);
  knobs[3].setBounds(251,296,112,131);knobs[4].setBounds(677,296,112,131);
  knobs[5].setBounds(393,296,112,131);knobs[6].setBounds(535,296,112,131);
+ model.setBounds(62,58,130,78);
  knee.setBounds(62,324,64,81);bypass.setBounds(130,324,64,81);
  for(int i=0;i<3;++i)meterButtons[(size_t)i].setBounds(892+i*112,341,86,80);
 }
 void Editor::makePanel(){
+ for(auto& k:knobs)k.setColour(juce::Slider::textBoxBackgroundColourId,juce::Colour(redMode?0xff44141e:0xff10283b));
  panel=juce::Image(juce::Image::RGB,1280,460,true);juce::Graphics g(panel);
- juce::ColourGradient blue(juce::Colour(0xff102535),0,0,juce::Colour(0xff173f5e),0,460,false);blue.addColour(.38,juce::Colour(0xff244c69));blue.addColour(.72,juce::Colour(0xff123550));g.setGradientFill(blue);g.fillAll();
+ juce::ColourGradient blue(juce::Colour(redMode?0xff58101c:0xff102535),0,0,juce::Colour(redMode?0xff871e30:0xff173f5e),0,460,false);blue.addColour(.38,juce::Colour(redMode?0xffb43d4c:0xff244c69));blue.addColour(.72,juce::Colour(redMode?0xff6f1426:0xff123550));g.setGradientFill(blue);g.fillAll();
  juce::Random random(160);
  for(int y=0;y<460;++y){g.setColour(juce::Colours::white.withAlpha(.008f+random.nextFloat()*.026f));g.drawHorizontalLine(y,0,1280);for(int n=0;n<8;++n){float x=random.nextFloat()*1280;g.setColour((n%2?juce::Colours::white:juce::Colours::black).withAlpha(.02f+random.nextFloat()*.035f));g.drawHorizontalLine(y,x,x+20+random.nextFloat()*200);}}
  g.setGradientFill(juce::ColourGradient(juce::Colours::transparentBlack,640,220,juce::Colours::black.withAlpha(.45f),0,220,true));g.fillAll();
@@ -110,9 +125,11 @@ void Editor::makePanel(){
  text(g,"1:1",398,219,36,15,10);text(g,"20:1",607,219,39,15,10);text(g,"4:1",502,58,36,15,10);
  text(g,"-20",636,218,30,15,10);text(g,"+20",802,218,33,15,10);text(g,"0",718,65,30,15,10);
  text(g,"METER SELECTION",904,310,275,22,11,muted,true);
- text(g,"ANALOG DYNAMICS",894,28,300,18,11,muted,true);
+ text(g,redMode?"RED / PEAK DYNAMICS":"BLUE / VCA DYNAMICS",894,28,300,18,11,muted,true);
 }
 void Editor::timerCallback(){
+ const bool next=processor.state.getRawParameterValue("model")->load()>.5f;
+ if(next!=redMode){redMode=next;makePanel();for(auto& k:knobs)k.setColour(juce::Slider::textBoxBackgroundColourId,juce::Colour(redMode?0xff44141e:0xff10283b));repaint();}
  float target=1.f;
  if(meterMode==2)target=juce::jlimit(0.f,1.f,1.f-processor.grDb.load()/30.f);
  else {float db=(meterMode==0?processor.inputVuDb.load():processor.outputVuDb.load())+18.f;target=juce::jlimit(0.f,1.f,(std::pow(10.f,db/20.f)-.1f)/1.31254f);}
@@ -120,6 +137,7 @@ void Editor::timerCallback(){
  repaint(855,36,365,268);
 }
 void Editor::drawMeter(juce::Graphics& g){
+ if(redMode){drawRoundMeter(g);return;}
  const juce::Rectangle<float> bezel(863,61,351,235), face(879,78,319,200);
  g.setColour(juce::Colours::black.withAlpha(.5f));g.fillRoundedRectangle(bezel.translated(2,5).expanded(3),20);
  juce::ColourGradient rim(juce::Colour(0xff7792a3),bezel.getTopLeft(),juce::Colour(0xff071524),bezel.getBottomRight(),false);rim.addColour(.15,juce::Colour(0xff29465f));rim.addColour(.5,juce::Colour(0xff0a1b2a));rim.addColour(.85,juce::Colour(0xff1c3549));g.setGradientFill(rim);g.fillRoundedRectangle(bezel,18);
@@ -142,6 +160,29 @@ void Editor::drawMeter(juce::Graphics& g){
  g.setColour(juce::Colour(0xff392d24));g.drawLine({pivot,end},1.8f);g.setColour(red);g.drawLine({radial(pivot,radius-26,angle),end},1.7f);
  juce::Path reflection;reflection.startNewSubPath(879,78);reflection.lineTo(1198,78);reflection.lineTo(879,155);reflection.closeSubPath();g.setColour(juce::Colours::white.withAlpha(.12f));g.fillPath(reflection);
  // Independent peak lamp remains visible in every meter mode.
+}
+void Editor::drawRoundMeter(juce::Graphics& g){
+ const juce::Rectangle<float> rim(914,55,248,248),face(927,68,222,222);
+ g.setColour(juce::Colours::black.withAlpha(.5f));g.fillEllipse(rim.translated(3,5).expanded(3));
+ juce::ColourGradient metal(juce::Colour(0xffd4d3cc),909,55,juce::Colour(0xff17181b),1167,303,false);
+ metal.addColour(.2,juce::Colour(0xff484747));metal.addColour(.65,juce::Colour(0xff080a0c));metal.addColour(.9,juce::Colour(0xff717274));g.setGradientFill(metal);g.fillEllipse(rim);
+ g.setColour(juce::Colour(0xff020305));g.fillEllipse(face.expanded(3));
+ g.setGradientFill(juce::ColourGradient(juce::Colour(0xfffff4d7),1038,145,juce::Colour(0xffc6ac7f),922,68,true));g.fillEllipse(face);
+ juce::Graphics::ScopedSaveState save(g);juce::Path circle;circle.addEllipse(face);g.reduceClipRegion(circle);
+ const juce::Point<float> pivot(1038,247);const float radius=112,lo=-.86f,hi=.86f;
+ const juce::Colour black(0xff28251f),red(0xffb4322d);
+ juce::Path arc;arc.addCentredArc(pivot.x,pivot.y,radius,radius,0,lo,hi,true);g.setColour(black);g.strokePath(arc,juce::PathStrokeType(1.1f));
+ for(int i=0;i<=30;++i){const float a=lo+(hi-lo)*i/30.f;g.setColour(meterMode!=2&&i>20?red:black);g.drawLine({radial(pivot,radius-2,a),radial(pivot,radius+(i%5==0?9.f:4.f),a)},i%5==0?1.3f:.7f);}
+ const float gr[]={30,25,20,15,10,5,0},vu[]={-20,-10,-7,-5,-3,0,3};
+ for(int i=0;i<7;++i){float v=meterMode==2?gr[i]:vu[i];float f=meterMode==2?i/6.f:(std::pow(10.f,v/20)-.1f)/1.31254f;auto pt=radial(pivot,radius+20,lo+(hi-lo)*f);text(g,juce::String((int)v),pt.x-12,pt.y-7,24,14,10,meterMode!=2&&v>=0?red:black,true);}
+ text(g,meterMode==2?"GAIN REDUCTION":"VU",953,173,170,24,meterMode==2?11.f:20.f,black,true);
+ text(g,"LINDELL",970,201,136,24,18,red,true);
+ text(g,meterMode==2?"dB":"0 VU = -18 dBFS",968,225,140,13,8,black);
+ const float a=lo+(hi-lo)*needle;auto tip=radial(pivot,radius+9,a);
+ g.setColour(juce::Colours::black.withAlpha(.15f));g.drawLine(pivot.x+2,pivot.y+2,tip.x+2,tip.y+2,3);
+ g.setColour(black);g.drawLine({pivot,tip},1.6f);g.setColour(red);g.drawLine({radial(pivot,radius-20,a),tip},1.5f);
+ g.setColour(juce::Colour(0xff252525));g.fillEllipse(1027,236,22,22);g.setColour(juce::Colour(0xff555554));g.drawEllipse(1029,238,18,18,1);
+ g.setColour(juce::Colours::white.withAlpha(.12f));g.fillEllipse(929,71,218,70);
 }
 void Editor::paint(juce::Graphics& g){
  g.drawImageAt(panel,0,0);drawMeter(g);

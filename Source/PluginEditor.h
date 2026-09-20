@@ -16,15 +16,17 @@ class Editor final : public juce::AudioProcessorEditor, private juce::Timer {
  RackLook look;
  std::array<FineKnob,7> knobs;
  std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>,7> attachments;
- juce::ToggleButton bypass{"BYPASS"}, knee{"SOFT KNEE"};
+ juce::ToggleButton model{"BLUE / RED"}, bypass{"BYPASS"}, knee{"SOFT KNEE"};
  std::array<juce::ToggleButton,3> meterButtons;
- std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> bypassAttach,kneeAttach;
+ std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> bypassAttach,kneeAttach,modelAttach;
  juce::Image panel;
+ bool redMode=false;
  juce::TooltipWindow tooltips{this,700};
  int meterMode=2;
  float needle=1.0f;
  void timerCallback() override;
  void drawMeter(juce::Graphics&);
+ void drawRoundMeter(juce::Graphics&);
  void makePanel();
 public:
  explicit Editor(Processor&);

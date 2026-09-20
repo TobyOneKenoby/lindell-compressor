@@ -1,4 +1,4 @@
-# Lindell Rack Compressor — test build 0.1.1
+# Lindell Rack Compressor — test build 0.3.0
 
 A native JUCE VST3 compressor prototype for REAPER on macOS. Original vector-drawn 19-inch rack-style panel branded **Lindell Plugins**. This is a behavioral compressor inspired by the supplied 160XT schematic and 160A front panel, not a component-accurate or measured hardware emulation. No original logo or photograph is embedded.
 
@@ -9,7 +9,7 @@ A native JUCE VST3 compressor prototype for REAPER on macOS. Original vector-dra
 - Output gain: -20 to +20 dB, applied to the wet signal before Mix.
 - Sidechain HPF: 30–300 Hz, first-order 6 dB/octave, detector only. Default 30 Hz.
 - Mix: 0% untouched input to 100% compressed output. Linear, phase-aligned blending; zero reported latency.
-- Soft knee: 6 dB knee when on, hard knee when off.
+- Soft knee: 6 dB in Blue, 9 dB in Red when on, hard knee when off.
 - Bypass: returns to dry input with a brief smooth transition.
 - Knobs: vertical drag, Shift for finer adjustment, double-click reset, editable numeric values.
 - Blue brushed-aluminium panel, silver knobs and illuminated analog-style needle meter. Select Input, Output or Gain Reduction; input/output display uses smoothed RMS power, with 0 VU referenced to -18 dBFS (not a certified VU instrument). Independent output peak lamp.
@@ -57,3 +57,16 @@ Manual attack uses a fast detector so the shortest settings remain effective.
 Old saved states automatically use ORIG for both new controls. Together these
 reproduce the previous DSP sample-for-sample. Existing parameter IDs/order are
 preserved, and both new parameters support host automation and state recall.
+
+## Version 0.3.0: Blue / Red
+
+The BLUE / RED switch changes DSP and switches between blue metal/rectangular
+meter and red metal/round meter. Blue preserves v0.2 audio. Red uses a linked
+peak envelope and an alternate history-dependent Auto release. This is an
+experimental Red 3-inspired behavior, not a component-accurate emulation.
+See [research, comparison and explicit limitations](RESEARCH-RED.md).
+
+Existing projects reopen in Blue. Both engines stay warm, with a 40 ms gain
+crossfade on switching. Attack, release, threshold, ratio and output positions
+are retained across modes; compare at similar gain reduction and loudness.
+In Red, ORIG attack means 10 ms and ORIG release means Auto.

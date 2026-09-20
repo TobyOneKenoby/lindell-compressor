@@ -1,20 +1,19 @@
 #pragma once
 #include <algorithm>
 #include <cmath>
-namespace lindell {
-struct Settings { double threshold=-18, ratio=4, output=0, hpf=30, mix=100, knee=1, bypass=0, attackMs=-1, releaseSeconds=-1, model=0; };
+namespace blue_v02 {
+struct Settings { double threshold=-18, ratio=4, output=0, hpf=30, mix=100, knee=1, bypass=0, attackMs=-1, releaseSeconds=-1; };
 class Compressor {
  double rate=48000, smooth=0, rmsCoef=0, fastDetectorCoef=0, slowAttackCoef=0, slowReleaseCoef=0, power=0, reduction=0, slowReduction=0;
- double redEnvelope=0, redReduction=0, redMemory=0, blend=0;
  double x[2]{}, y[2]{}; Settings current;
  public:
- void prepare(double sr, Settings s={}) { rate=sr; smooth=std::exp(-1/(.02*sr)); rmsCoef=std::exp(-1/(.01*sr)); fastDetectorCoef=std::exp(-1/(.00005*sr)); slowAttackCoef=std::exp(-1/(.3*sr)); slowReleaseCoef=std::exp(-1/(1.2*sr)); power=reduction=slowReduction=0; x[0]=x[1]=y[0]=y[1]=0; current=s; redEnvelope=redReduction=redMemory=0; blend=s.model>.5?1:0; }
+ void prepare(double sr, Settings s={}) { rate=sr; smooth=std::exp(-1/(.02*sr)); rmsCoef=std::exp(-1/(.01*sr)); fastDetectorCoef=std::exp(-1/(.00005*sr)); slowAttackCoef=std::exp(-1/(.3*sr)); slowReleaseCoef=std::exp(-1/(1.2*sr)); power=reduction=slowReduction=0; x[0]=x[1]=y[0]=y[1]=0; current=s; }
  static double curve(double db,double threshold,double ratio,double width) {
   double over=db-threshold, slope=1-1/ratio;
   if(width>0 && over>-width/2 && over<width/2) return slope*(over+width/2)*(over+width/2)/(2*width);
   return slope*std::max(0.0,over);
  }
- double gainReduction() const { return reduction+(redReduction-reduction)*blend; }
+ double gainReduction() const { return reduction; }
  void tick(float* samples,int channels,const Settings& target) {
   auto ramp=[&](double& v,double t){v=t+smooth*(v-t); if(std::abs(v-t)<1e-9)v=t;};
   ramp(current.threshold,target.threshold);ramp(current.ratio,target.ratio);ramp(current.output,target.output);
@@ -40,23 +39,7 @@ class Compressor {
   const double seconds=wanted>reduction?attack:release;
   const double coefficient=std::exp(-1/(seconds*rate));
   reduction=wanted+coefficient*(reduction-wanted);
-  // RED prototype: rectified peak envelope before the static curve, rather
-  // than BLUE's power detector and dB gain envelope. No circuit-value claim.
-  const double redAttack=target.attackMs<0?.01:std::max(.0001,target.attackMs*.001);
-  const double redRelease=target.releaseSeconds>0?target.releaseSeconds:
-      .1+1.9*std::clamp(redMemory/20.,0.,1.);
-  const double peak=std::sqrt(energy);
-  const double rc=std::exp(-1/((peak>redEnvelope?redAttack:redRelease)*rate));
-  redEnvelope=peak+rc*(redEnvelope-peak);
-  redReduction=curve(20*std::log10(std::max(1e-10,redEnvelope)),current.threshold,current.ratio,9*current.knee);
-  const double memoryCoef=redReduction>redMemory?slowAttackCoef:slowReleaseCoef;
-  redMemory=redReduction+memoryCoef*(redMemory-redReduction);
-  // Both envelopes stay warm; a 40 ms gain crossfade avoids state-reset clicks.
-  const double step=1/(.04*rate);
-  blend=target.model>.5?std::min(1.,blend+step):std::max(0.,blend-step);
-  const double blueGain=std::pow(10.,(current.output-reduction)/20);
-  const double redGain=std::pow(10.,(current.output-redReduction)/20);
-  const double gain=blend==0?blueGain:blend==1?redGain:blueGain+(redGain-blueGain)*blend;
+  const double gain=std::pow(10.,(current.output-reduction)/20);
   const double wet=current.mix*.01*(1-current.bypass);
   for(int c=0;c<channels;++c) samples[c]=static_cast<float>(samples[c]*(1+wet*(gain-1)));
  }

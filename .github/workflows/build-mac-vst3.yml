@@ -61,7 +61,7 @@ jobs:
           ditto 'build/LindellRackCompressor_artefacts/Release/VST3/Lindell Rack Compressor.vst3' \
             'release/Lindell Rack Compressor.vst3'
           cp INSTALL-PLUGIN.txt release/
-          cp Lindell-Rack-Preview.png release/
+          cp Lindell-Rack-Preview.png Lindell-Red-Preview.png RESEARCH-RED.md release/
           printf 'Source commit: %s\nJUCE commit: %s\n' "$GITHUB_SHA" "$(git -C external/JUCE rev-parse HEAD)" > release/BUILD-INFO.txt
           ditto -c -k --sequesterRsrc --keepParent release Lindell-Mac-VST3.zip
           shasum -a 256 Lindell-Mac-VST3.zip > Lindell-Mac-VST3.zip.sha256
