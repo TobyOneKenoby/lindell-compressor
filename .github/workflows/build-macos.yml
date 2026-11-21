@@ -1,0 +1,25 @@
+name: Build macOS
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -B build -G Xcode -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+      - name: Build
+        run: cmake --build build --config Release --target SA670_VST3 SA670_AU -- -quiet
+      - name: Ad-hoc sign
+        run: |
+          codesign --force --deep -s - "build/SA670_artefacts/Release/VST3/SA-670.vst3"
+          codesign --force --deep -s - "build/SA670_artefacts/Release/AU/SA-670.component"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SA-670-macOS
+          path: |
+            build/SA670_artefacts/Release/VST3/SA-670.vst3
+            build/SA670_artefacts/Release/AU/SA-670.component
