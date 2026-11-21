@@ -1,25 +1,45 @@
-name: Build macOS
+name: Build macOS (SA-670)
 
 on:
   push:
+    branches: [sa670-vibealizer]
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
-      - name: Configure
-        run: cmake -B build -G Xcode -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
-      - name: Build
-        run: cmake --build build --config Release --target SA670_VST3 SA670_AU -- -quiet
+      - uses: actions/checkout@v6
+
+      - name: Configure (universal arm64 + x86_64)
+        run: cmake -S . -B build -G Xcode -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"
+
+      - name: Build VST3 + AU
+        run: cmake --build build --config Release --parallel 3 --target SA670_VST3 SA670_AU -- -quiet
+
       - name: Ad-hoc sign
         run: |
-          codesign --force --deep -s - "build/SA670_artefacts/Release/VST3/SA-670.vst3"
-          codesign --force --deep -s - "build/SA670_artefacts/Release/AU/SA-670.component"
-      - uses: actions/upload-artifact@v4
+          for P in "build/SA670_artefacts/Release/VST3/SA-670.vst3" "build/SA670_artefacts/Release/AU/SA-670.component"; do
+            codesign --force --deep --sign - --timestamp=none "$P"
+            codesign --verify --strict --verbose=2 "$P"
+          done
+          lipo -info "build/SA670_artefacts/Release/VST3/SA-670.vst3/Contents/MacOS/SA-670"
+
+      - name: Package
+        run: |
+          mkdir -p dist
+          cp -R "build/SA670_artefacts/Release/VST3/SA-670.vst3" dist/
+          cp -R "build/SA670_artefacts/Release/AU/SA-670.component" dist/
+          cat > dist/INSTALL.txt <<'TXT'
+          Installera:
+            SA-670.vst3      -> ~/Library/Audio/Plug-Ins/VST3/
+            SA-670.component -> ~/Library/Audio/Plug-Ins/Components/
+          Om macOS blockerar pluginen (nedladdad fil), kör i Terminal:
+            xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/SA-670.vst3
+            xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/Components/SA-670.component
+          TXT
+
+      - uses: actions/upload-artifact@v7
         with:
-          name: SA-670-macOS
-          path: |
-            build/SA670_artefacts/Release/VST3/SA-670.vst3
-            build/SA670_artefacts/Release/AU/SA-670.component
+          name: SA-670-macOS-VST3-AU
+          path: dist
