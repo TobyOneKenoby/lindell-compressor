@@ -42,6 +42,16 @@ public:
     // Meter feed for the editor (linear RMS for in/out, dB for GR)
     std::atomic<float> meterIn[2] {}, meterOut[2] {}, meterGR[2] {};
 
+    // Output samples for the spectrum analyser (audio thread -> GUI, lock free)
+    static constexpr int specFifoSize = 32768;
+    juce::AbstractFifo specFifo { specFifoSize };
+    std::vector<float> specBuffer = std::vector<float> ((size_t) specFifoSize);
+    std::atomic<bool> analyserActive { false };
+    double getCurrentRate() const { return sr; }
+
+    void readEqSettings (sa670::ProgramEQSettings& s);
+    bool isEqIn() const { return eqIn->load() > 0.5f; }
+
 private:
     struct ChannelParams
     {
@@ -52,7 +62,6 @@ private:
     };
 
     std::atomic<float>* p (const char* id) { return apvts.getRawParameterValue (id); }
-    void readEqSettings (sa670::ProgramEQSettings& s);
     void processChunk (float* const* chans, int nCh, int n, float* grMax, double* inSum, double* outSum);
 
     // EQ params

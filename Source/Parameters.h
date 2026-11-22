@@ -123,7 +123,7 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout()
     glob->addChild (toggle (id::soloSide, "Solo Side", false));
     glob->addChild (std::make_unique<AudioParameterInt> (ParameterID { id::tolL, 1 }, "Tolerance Channel L", 0, 99, 10));
     glob->addChild (std::make_unique<AudioParameterInt> (ParameterID { id::tolR, 1 }, "Tolerance Channel R", 0, 99, 11));
-    glob->addChild (toggle (id::display, "Value Display", true));
+    glob->addChild (toggle (id::display, "Analyser Display", false));
     glob->addChild (choice (id::agcMode, "AGC Mode", agcNames, 1));
     layout.add (std::move (glob));
 

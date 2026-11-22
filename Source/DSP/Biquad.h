@@ -1,6 +1,7 @@
 #pragma once
 #include <cmath>
 #include <algorithm>
+#include <complex>
 
 namespace sa670
 {
@@ -12,6 +13,13 @@ struct BiquadCoeffs
     static constexpr double pi = 3.14159265358979323846;
 
     static BiquadCoeffs identity() { return {}; }
+
+    /** Magnitude response of the digital filter at f (Hz). */
+    double magnitude (double fs, double f) const
+    {
+        const std::complex<double> z1 = std::polar (1.0, -2.0 * pi * f / fs), z2 = z1 * z1;
+        return std::abs ((b0 + b1 * z1 + b2 * z2) / (1.0 + a1 * z1 + a2 * z2));
+    }
 
     static BiquadCoeffs normalise (double b0, double b1, double b2, double a0, double a1, double a2)
     {

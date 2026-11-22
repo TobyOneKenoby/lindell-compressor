@@ -77,13 +77,16 @@ VU-mätarna läser medelvärdet av likriktad signal (0 VU = −18 dBFS). Visaren
 
 ## GUI
 
-Panelen är din bild (`Resources/panel_source.webp`). `tools/clean_panel.py` tar bort rattar, spakar och visare från bilden, och `tools/make_assets.py` skär ut varje reglage som en sprite med alfakanal och skugga. Samma skript mäter också skalvinklarna och genererar `Source/UI/Layout.h`. Kör skripten igen om du byter grafik:
+- **Panelen ritas helt som vektor** (`Source/UI/PanelArt.cpp`): pulverlack, rackfästen, skruvar, alla texter och skalor, VU-hus och lampa. Den cachas i skärmens upplösning, så den är skarp på Retina. Typsnitt: Jost (SIL OFL, `Resources/fonts`).
+- **Rattar och spakar** är fotografiska sprites ur din panelbild (`Resources/panel_source.webp`). `tools/clean_panel.py` och `tools/make_assets.py` skär ut dem och mäter skalvinklarna till `Source/UI/Layout.h`:
 
-```bash
-python3 tools/clean_panel.py && python3 tools/make_assets.py
-```
+  ```bash
+  python3 tools/clean_panel.py && python3 tools/make_assets.py
+  ```
 
-(De kräver `pip install opencv-python-headless numpy`.)
+- **VU-mätarna** är vektorritade med standardens ballistik.
+- **Levande detaljer:** lampan värms upp och lyser på panelen, VU-belysningen följer ON, spakarna svänger och rattarna glider.
+- **DISPLAY** öppnar en spektrumanalysator med EQ-kurvan, beräknad från kretsmodellen.
 
 ## Test
 

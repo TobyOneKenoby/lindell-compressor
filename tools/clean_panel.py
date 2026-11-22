@@ -125,13 +125,79 @@ def paste(box, cx=None, cy=None, scale=1.0):
     out[Y:Y+h,X:X+w]=out[Y:Y+h,X:X+w]*(1-a[...,None])+col*a[...,None]
 for box in [(404,662,452,680),(532,662,562,680),(404,931,452,949),(532,931,562,949)]:
     paste(box)
-paste((404,662,452,680),486,521); paste((404,931,452,949),486,788)
 # BYPASS (left, under the meters) becomes LINK = L/R control link
 bp=(104,838,160,860)
 txt=np.zeros((H,W),np.uint8); txt[bp[1]:bp[3],bp[0]:bp[2]]=(label[bp[1]:bp[3],bp[0]:bp[2]]|(v[bp[1]:bp[3],bp[0]:bp[2]]>130))
 o8=cv2.inpaint(np.clip(out,0,255).astype(np.uint8),cv2.dilate(txt,np.ones((3,3),np.uint8))*255,4,cv2.INPAINT_TELEA)
 out=o8.astype(np.float32)
 paste((1059,707,1089,721),132,848,13.0/11.0)
+# ---- flatten leftover drop-shadow halos around every control ----------------
+# illumination of the clean panel (labels and controls excluded) at two scales:
+# the local level (sigma 9) is brought to the large-scale level (sigma 45)
+wl=((cv2.dilate(label.astype(np.uint8),np.ones((5,5),np.uint8))==0)&(chroma>30)).astype(np.float32)
+def nconv(img3, w, sig):
+    return cv2.GaussianBlur(img3*w[...,None],(0,0),sig)/np.maximum(cv2.GaussianBlur(w,(0,0),sig)[...,None],1e-3)
+local=nconv(out,wl*(mask==0),9); wide=nconv(out,wl*(1-np.clip(cv2.GaussianBlur(mask.astype(np.float32),(0,0),20)*3,0,1)),45)
+ring=np.zeros((H,W),np.float32)
+for name,(t,x,y) in CONTROLS.items():
+    if t=="screw": continue
+    R=RADIUS[t]*1.75+18
+    cv2.circle(ring,(int(x+5),int(y+8)),int(R),1.0,-1)
+ring=cv2.GaussianBlur(ring,(0,0),10)
+# keep the VU housings and the lamp untouched
+for (x0,y0,x1,y1) in [(168,485,382,708),(168,755,382,978),(100,705,166,770)]:
+    ring[y0:y1,x0:x1]=0
+# only outside the retouched (already flat) area
+inside=np.clip(cv2.GaussianBlur(mask.astype(np.float32),(0,0),3)*1.5,0,1)
+ring=ring*(1-inside)
+gain=np.clip(wide/np.maximum(local,1.0),0.85,1.35)
+gain=1+(gain-1)*ring[...,None]
+out=np.clip(out*gain,0,255)
+# refill the retouched areas from the now-flattened surroundings
+w2=((mask==0)&~label&panel).astype(np.float32)
+smooth2=nconv(out,w2,25)
+fill2=smooth2+tex
+out=out*(1-m3)+fill2*m3
+out[restore]=np.clip(img*gain,0,255)[restore]
+# remaining shadow crescents: anything darker than the panel's large-scale level
+# near a control is shadow -> add to the retouch and refill
+lab_d=cv2.dilate(label.astype(np.uint8),np.ones((5,5),np.uint8)).astype(bool)
+wide2=nconv(out,((mask==0)&~lab_d&panel).astype(np.float32)*(1-np.clip(cv2.GaussianBlur(mask.astype(np.float32),(0,0),20)*3,0,1)),40)
+dark=(wide2.mean(axis=2)-cv2.GaussianBlur(out,(0,0),2).mean(axis=2))
+near=np.zeros((H,W),np.uint8)
+for name,(t,x,y) in CONTROLS.items():
+    if t=="screw": continue
+    cv2.circle(near,(int(x+4),int(y+7)),int(RADIUS[t]*1.8+12),1,-1)
+for (x0,y0,x1,y1) in [(168,485,382,708),(168,755,382,978),(100,705,166,770)]:
+    near[y0:y1,x0:x1]=0
+sh=(near>0)&(dark>3.0)&~lab_d
+sh=cv2.morphologyEx(sh.astype(np.uint8),cv2.MORPH_CLOSE,np.ones((9,9),np.uint8))
+sh=cv2.dilate(sh,cv2.getStructuringElement(cv2.MORPH_ELLIPSE,(11,11)))
+sh=(sh>0)&~lab_d
+screwDisc=np.zeros((H,W),np.uint8)
+for (sx,sy) in [(88,162),(1222,162),(88,460),(1222,460),(88,740),(1222,740),(88,1030),(1222,1030),(655,1172)]:
+    cv2.circle(screwDisc,(sx,sy),13,1,-1)
+sh&=~(screwDisc>0)
+w3=((mask==0)&~sh&~lab_d&panel).astype(np.float32)
+num3=cv2.GaussianBlur(out*w3[...,None],(0,0),22); den3=cv2.GaussianBlur(w3,(0,0),22)[...,None]
+fill3=np.where(den3>0.05,num3/np.maximum(den3,1e-3),wide2)+tex
+a3=np.clip(cv2.GaussianBlur(sh.astype(np.float32),(0,0),3)*1.3,0,1)[...,None]
+keep=out.copy()
+out=out*(1-a3)+fill3*a3
+out[lab_d&(a3[...,0]>0)]=keep[lab_d&(a3[...,0]>0)]
+fill2=fill3
+print("shadow px",int(sh.sum()))
+# VU housings: remove the screw in the top-right corner (fill with the bakelite around it)
+o8=np.clip(out,0,255).astype(np.uint8)
+for (sx,sy) in [(350,512),(350,782)]:
+    m=np.zeros((H,W),np.uint8); cv2.circle(m,(sx,sy),13,255,-1)
+    o8=cv2.inpaint(o8,m,6,cv2.INPAINT_TELEA)
+out=o8.astype(np.float32)
+# top ZERO legends: clear and re-letter cleanly (copied from the ZERO under the meter)
+for (cx,cy) in [(486,521),(486,788)]:
+    out[cy-10:cy+10,cx-24:cx+24]=fill2[cy-10:cy+10,cx-24:cx+24]
+paste((404,662,452,680),486,521); paste((404,931,452,949),486,788)
+
 # needles: inpaint on the meter face (small area -> Telea is fine there)
 o8=np.clip(out,0,255).astype(np.uint8)
 for nm in needles: o8=cv2.inpaint(o8,nm*255,3,cv2.INPAINT_TELEA)

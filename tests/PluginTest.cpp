@@ -124,10 +124,25 @@ int main()
 
     // GUI snapshot
     {
-        set (p, "lfBoost", 6); set (p, "lfAtten", 3); set (p, "hfBoost", 4); set (p, "bandwidth", 4); set (p, "hfAtten", 2); set (p, "midAmt", 3); set (p, "lowCut", 1); set (p, "highCut", 9); set (p, "power", 1); set (p, "eqIn", 1); set (p, "soloMid", 0); set (p, "agcMode", 1); set (p, "tc1", 1); set (p, "tc2", 1); set (p, "thresh1", 5); set (p, "thresh2", 5); set (p, "mix1", 8); set (p, "mix2", 8); set (p, "dcThr1", 5); set (p, "dcThr2", 5); set (p, "output1", 5); set (p, "output2", 5); set (p, "inGain1", 6); set (p, "inGain2", 6); set (p, "meter2", 1);
+        set (p, "lfBoost", 6); set (p, "lfAtten", 3); set (p, "hfBoost", 4); set (p, "bandwidth", 4); set (p, "hfAtten", 2); set (p, "midAmt", 3); set (p, "lfBoost", 8); set (p, "lfAtten", 5); set (p, "hfBoost", 6); set (p, "lowCut", 1); set (p, "highCut", 9); set (p, "power", 1); set (p, "eqIn", 1); set (p, "soloMid", 0); set (p, "agcMode", 1); set (p, "tc1", 1); set (p, "tc2", 1); set (p, "thresh1", 5); set (p, "thresh2", 5); set (p, "mix1", 8); set (p, "mix2", 8); set (p, "dcThr1", 5); set (p, "dcThr2", 5); set (p, "output1", 5); set (p, "output2", 5); set (p, "inGain1", 6); set (p, "inGain2", 6); set (p, "meter2", 1); set (p, "display", 1);
         std::unique_ptr<juce::AudioProcessorEditor> ed (p.createEditor());
-        ed->setSize (SA670AudioProcessorEditor::panelW, SA670AudioProcessorEditor::panelH);
-        auto img = ed->createComponentSnapshot (ed->getLocalBounds(), true, 1.0f);
+        ed->setSize (SA670AudioProcessorEditor::panelW, SA670AudioProcessorEditor::panelH + sa670::ui::Analyser::height);
+        {
+            juce::AudioBuffer<float> buf (2, 512); juce::MidiBuffer midi; juce::Random r;
+            p.prepareToPlay (48000, 512);
+            for (int b = 0; b < 40; ++b)
+            {
+                for (int c = 0; c < 2; ++c) for (int i = 0; i < 512; ++i) buf.setSample (c, i, (r.nextFloat() - 0.5f) * 0.3f);
+                p.processBlock (buf, midi);
+            }
+            std::function<void (juce::Component&)> visit = [&] (juce::Component& c)
+            {
+                if (auto* a = dynamic_cast<sa670::ui::Analyser*> (&c)) for (int k = 0; k < 8; ++k) a->refreshNow();
+                for (auto* ch : c.getChildren()) visit (*ch);
+            };
+            visit (*ed);
+        }
+        auto img = ed->createComponentSnapshot (ed->getLocalBounds(), true, 2.0f);
         juce::File out (juce::File::getCurrentWorkingDirectory().getChildFile ("sa670_gui.png"));
         out.deleteFile();
         juce::FileOutputStream os (out);

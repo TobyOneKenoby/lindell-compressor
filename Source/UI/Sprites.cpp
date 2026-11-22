@@ -8,6 +8,40 @@ using namespace juce;
 static Font uiFont (float h) { return Font (FontOptions (h, Font::bold)).withExtraKerningFactor (0.06f); }
 static const Colour cream (0xffe6dfcf);
 
+void paintPowderCoat (Graphics& g, Rectangle<float> r, Colour top, Colour bottom, int seed, float corner)
+{
+    Path shape;
+    shape.addRoundedRectangle (r, corner);
+    g.saveState();
+    g.reduceClipRegion (shape);
+
+    ColourGradient base (top, r.getX(), r.getY(), bottom, r.getX(), r.getBottom(), false);
+    base.addColour (0.5, top.interpolatedWith (bottom, 0.4f));
+    g.setGradientFill (base);
+    g.fillRect (r);
+
+    // powder-coat grain (deterministic)
+    Random rng (seed);
+    const int dots = (int) (r.getWidth() * r.getHeight() * 0.045f);
+    for (int i = 0; i < dots; ++i)
+    {
+        g.setColour ((rng.nextBool() ? Colours::white : Colours::black).withAlpha (0.03f + 0.025f * rng.nextFloat()));
+        g.fillRect (r.getX() + rng.nextFloat() * r.getWidth(), r.getY() + rng.nextFloat() * r.getHeight(), 1.2f, 1.2f);
+    }
+    // soft studio light: brighter towards the top-centre, darker corners
+    ColourGradient vg (Colours::white.withAlpha (0.04f), r.getCentreX(), r.getY(),
+                       Colours::black.withAlpha (0.30f), r.getX(), r.getBottom(), true);
+    g.setGradientFill (vg);
+    g.fillRect (r);
+    g.restoreState();
+
+    // bevel
+    g.setColour (Colours::white.withAlpha (0.10f));
+    g.drawRoundedRectangle (r.reduced (0.75f).translated (0.5f, 0.5f), corner, 1.2f);
+    g.setColour (Colours::black.withAlpha (0.7f));
+    g.drawRoundedRectangle (r.reduced (0.5f), corner, 1.0f);
+}
+
 Image loadAsset (const String& resourceName)
 {
     static std::map<String, Image> cache;
@@ -60,7 +94,7 @@ SpriteControl::SpriteControl (AudioProcessorValueTreeState& s, const layout::Con
       attachment (param, [this] (float v)
                   {
                       value01 = param.convertTo0to1 (v);
-                      repaint();
+                      animateTo();
                       if (onValueChange) onValueChange (v);
                   }, nullptr)
 {
@@ -75,6 +109,37 @@ SpriteControl::SpriteControl (AudioProcessorValueTreeState& s, const layout::Con
     setTooltip (param.getName (64));
     setMouseCursor (MouseCursor::PointingHandCursor);
     attachment.sendInitialUpdate();
+}
+
+void SpriteControl::animateTo()
+{
+    const float targetAngle = currentAngle();
+    const float targetFlip = (info.kind == layout::Kind::Toggle && value01 < 0.5f) ? -1.0f : 1.0f;
+    if (! initialised || (dragging && numChoices == 0))
+    {
+        // first paint, or a continuous drag: follow the hand directly
+        shownAngle = targetAngle; shownFlip = targetFlip; initialised = true;
+        repaint();
+        return;
+    }
+    if (std::abs (shownAngle - targetAngle) > 0.05f || std::abs (shownFlip - targetFlip) > 0.01f)
+        startTimerHz (120);
+}
+
+void SpriteControl::timerCallback()
+{
+    const float targetAngle = currentAngle();
+    const float targetFlip = (info.kind == layout::Kind::Toggle && value01 < 0.5f) ? -1.0f : 1.0f;
+    // knobs glide (~35 ms), levers swing over centre (~70 ms)
+    shownAngle += (targetAngle - shownAngle) * 0.32f;
+    const float df = targetFlip - shownFlip;
+    shownFlip += jlimit (-0.25f, 0.25f, df);
+    if (std::abs (targetAngle - shownAngle) < 0.05f && std::abs (targetFlip - shownFlip) < 0.01f)
+    {
+        shownAngle = targetAngle; shownFlip = targetFlip;
+        stopTimer();
+    }
+    repaint();
 }
 
 void SpriteControl::placeAt (float x, float y)
@@ -99,24 +164,34 @@ void SpriteControl::paint (Graphics& g)
     const float S = (float) info.size;
     const float shadowOffX = 5.0f * scale, shadowOffY = 9.0f * scale;
 
-    auto spriteTransform = [&] (float rotationDeg, bool flipV, float pad)
+    auto spriteTransform = [&] (float rotationDeg, float flipV, float pad)
     {
         auto t = AffineTransform::translation (-(S * 0.5f + pad), -(S * 0.5f + pad));
-        if (flipV) t = t.scaled (1.0f, -1.0f);
+        // lever swinging through centre: foreshortened, never quite zero height
+        if (flipV != 1.0f) t = t.scaled (1.0f, std::copysign (jmax (0.12f, std::abs (flipV)), flipV));
         t = t.rotated (degreesToRadians (rotationDeg)).scaled (scale).translated (c);
         return t;
     };
 
     float rot = 0.0f;
-    bool flip = false;
+    float flip = 1.0f;
     switch (info.kind)
     {
-        case layout::Kind::Chicken: rot = currentAngle() - info.baked; break;
-        case layout::Kind::Toggle:  flip = value01 < 0.5f; break;
+        case layout::Kind::Chicken: rot = shownAngle - info.baked; break;
+        case layout::Kind::Toggle:  flip = shownFlip; break;
         case layout::Kind::Screw:   rot = (value01 - 0.5f) * 270.0f; break;
         case layout::Kind::Fluted:  break;
     }
 
+    if (info.kind == layout::Kind::Fluted || info.kind == layout::Kind::Chicken)
+    {
+        // contact shadow right at the base (knob sits on the panel)
+        const float rr = (info.kind == layout::Kind::Fluted ? 0.47f : 0.30f) * S * scale;
+        ColourGradient ao (Colours::black.withAlpha (0.45f), c.x + 1.5f * scale, c.y + 3.0f * scale,
+                           Colours::transparentBlack, c.x + 1.5f * scale + rr * 1.18f, c.y + 3.0f * scale, true);
+        g.setGradientFill (ao);
+        g.fillEllipse (c.x + 1.5f * scale - rr * 1.18f, c.y + 3.0f * scale - rr * 1.18f, rr * 2.36f, rr * 2.36f);
+    }
     if (info.kind != layout::Kind::Screw)
     {
         g.setOpacity (info.kind == layout::Kind::Toggle ? 0.55f : 0.75f);
@@ -129,7 +204,7 @@ void SpriteControl::paint (Graphics& g)
     {
         // index line on the skirt, like the original white engraving
         const float R = S * 0.5f * scale - 6.0f * scale;
-        const float a = degreesToRadians (currentAngle());
+        const float a = degreesToRadians (shownAngle);
         const Point<float> dir (std::sin (a), -std::cos (a));
         const Line<float> line (c + dir * (R * 0.70f), c + dir * (R * 0.93f));
         g.setColour (Colours::black.withAlpha (0.55f));
@@ -226,17 +301,26 @@ void SpriteControl::mouseWheelMove (const MouseEvent&, const MouseWheelDetails& 
 }
 
 //==============================================================================
-// VU needle. The printed scale in the artwork is not a perfect arc, so the tick
-// positions were measured (source pixels) and the needle is aimed at them.
+// VU meter face: drawn as vectors (crisp at any size) into the window of the
+// bakelite housing from the artwork. Classic VU scale: -20..+3 VU, linear in
+// voltage, red zone above 0 VU, percentage scale underneath.
 namespace
 {
-    constexpr float vuDb[] = { -23, -20, -10, -7, -5, -3, -2, -1, 0, 1, 2, 3, 4 };
-    constexpr float vuX[]  = { 194, 200, 220, 241, 251, 267, 285, 293, 302, 316, 330, 344, 349 };
-    constexpr float vuY[]  = { 575, 572, 566, 561, 558, 555, 554, 555, 557, 562, 568, 580, 586 };
-    constexpr float pivotX = 281.0f, pivotY = 690.0f;
-    const Rectangle<float> meterArea (185.0f, 500.0f, 185.0f, 140.0f);   // component bounds (meter 1)
+    // window outline measured from the artwork (meter 1; meter 2 is 270 px lower)
+    constexpr float facePoly[][2] = { { 349, 560 }, { 354, 577 }, { 354, 617 }, { 353, 622 }, { 348, 626 }, { 205, 625 },
+                                      { 201, 623 }, { 197, 618 }, { 196, 615 }, { 196, 582 }, { 197, 572 }, { 200, 561 },
+                                      { 213, 541 }, { 221, 534 }, { 240, 524 }, { 261, 519 }, { 288, 519 }, { 302, 522 },
+                                      { 316, 527 }, { 329, 535 }, { 342, 548 } };
+    const Rectangle<float> meterArea (190.0f, 512.0f, 172.0f, 122.0f);   // component bounds (meter 1)
+    constexpr float pivotX = 275.0f, pivotY = 668.0f, arcR = 102.0f, halfSpan = 36.0f;
     inline float dbToFrac (float db) { return (std::pow (10.0f, db / 20.0f) - 0.1f) / (std::pow (10.0f, 0.15f) - 0.1f); }
     inline float fracToDb (float f) { return 20.0f * std::log10 (jmax (1.0e-4f, 0.1f + f * (std::pow (10.0f, 0.15f) - 0.1f))); }
+    inline float fracToDeg (float f) { return -halfSpan + f * 2.0f * halfSpan; }
+    inline Point<float> polarP (Point<float> c, float r, float deg)
+    {
+        const float a = degreesToRadians (deg);
+        return { c.x + r * std::sin (a), c.y - r * std::cos (a) };
+    }
 }
 
 VUNeedle::VUNeedle (std::function<float()> s, float yOffset) : source (std::move (s)), dy (yOffset)
@@ -248,11 +332,7 @@ VUNeedle::VUNeedle (std::function<float()> s, float yOffset) : source (std::move
 
 Point<float> VUNeedle::scalePoint (float db) const
 {
-    db = jlimit (vuDb[0], vuDb[12], db);
-    int i = 0;
-    while (i < 11 && db > vuDb[i + 1]) ++i;
-    const float t = (db - vuDb[i]) / (vuDb[i + 1] - vuDb[i]);
-    return { vuX[i] + t * (vuX[i + 1] - vuX[i]), vuY[i] + t * (vuY[i + 1] - vuY[i]) };
+    return polarP ({ pivotX, pivotY }, arcR, fracToDeg (dbToFrac (db)));
 }
 
 void VUNeedle::timerCallback()
@@ -269,7 +349,7 @@ void VUNeedle::timerCallback()
         const float acc = w * w * (target - frac) - 2.0f * zeta * w * velocity;
         velocity += acc * dt;
         frac += velocity * dt;
-        if (frac < -0.04f) { frac = -0.04f; velocity = -velocity * 0.2f; }   // end stops
+        if (frac < -0.05f) { frac = -0.05f; velocity = -velocity * 0.2f; }   // end stops
         if (frac > 1.09f)  { frac = 1.09f;  velocity = -velocity * 0.2f; }
     }
     needleDb = fracToDb (frac);
@@ -278,26 +358,116 @@ void VUNeedle::timerCallback()
 
 void VUNeedle::paint (Graphics& g)
 {
-    const Point<float> origin (meterArea.getX(), meterArea.getY() + dy);
-    const Point<float> pivot = Point<float> (pivotX, pivotY + dy) - origin;
-    const Point<float> onScale = scalePoint (needleDb) + Point<float> (0.0f, dy) - origin;
-    const Point<float> tip = onScale + (onScale - pivot) / onScale.getDistanceFrom (pivot) * 7.0f;
+    // work in panel coordinates of meter 1
+    g.addTransform (AffineTransform::translation (-meterArea.getX(), -meterArea.getY()));
+    const Point<float> pv (pivotX, pivotY);
 
-    // visible window of the face, minus the pivot dome
-    Path clip;
-    clip.addRoundedRectangle (Rectangle<float> (194.0f, 512.0f, 165.0f, 113.0f).translated (0.0f, dy) - origin, 6.0f);
-    Path dome;
-    dome.addEllipse (Rectangle<float> (255.0f, 619.0f, 52.0f, 26.0f).translated (0.0f, dy) - origin);
-    clip.addPath (dome);
-    clip.setUsingNonZeroWinding (false);
+    Path face;
+    for (size_t i = 0; i < std::size (facePoly); ++i)
+        if (i == 0) face.startNewSubPath (facePoly[i][0], facePoly[i][1]); else face.lineTo (facePoly[i][0], facePoly[i][1]);
+    face.closeSubPath();
+    const auto fb = face.getBounds();
 
     g.saveState();
-    g.reduceClipRegion (clip);
-    g.setColour (Colours::black.withAlpha (0.18f));
-    g.drawLine (Line<float> (pivot.translated (2.5f, 3.0f), tip.translated (2.5f, 3.0f)), 1.8f);
-    g.setColour (Colour (0xff17130f));
-    g.drawLine (Line<float> (pivot, tip), 1.5f);
+    g.reduceClipRegion (face);
+
+    // card lit from behind by two incandescent lamps: warm centre, darker amber edges
+    // backlight warms up / cools down with the unit (unlit card is a dull ivory)
+    const float bl = backlight;
+    auto lit = [bl] (uint32 on, uint32 off) { return Colour (off).interpolatedWith (Colour (on), bl); };
+    ColourGradient card (lit (0xfffcecc4, 0xff8f8672), fb.getCentreX(), fb.getY() + fb.getHeight() * 0.62f,
+                         lit (0xffc98c43, 0xff5c5446), fb.getX() - 6.0f, fb.getBottom(), true);
+    card.addColour (0.55, lit (0xfff1d08e, 0xff7d7563));
+    g.setGradientFill (card);
+    g.fillRect (fb);
+
+    const Colour ink (0xff1d1712), red (0xffc4261b);
+    const float f0 = dbToFrac (0.0f);
+
+    // main arc: black to 0 VU, heavy red band above
+    Path arcBlack, arcRed;
+    arcBlack.addCentredArc (pv.x, pv.y, arcR, arcR, 0, degreesToRadians (fracToDeg (0)), degreesToRadians (fracToDeg (f0)), true);
+    arcRed.addCentredArc (pv.x, pv.y, arcR + 2.0f, arcR + 2.0f, 0, degreesToRadians (fracToDeg (f0)), degreesToRadians (fracToDeg (1)), true);
+    g.setColour (ink);
+    g.strokePath (arcBlack, PathStrokeType (1.1f));
+    g.setColour (red);
+    g.strokePath (arcRed, PathStrokeType (4.0f));
+
+    // ticks + numerals
+    struct Mark { float db; const char* txt; bool major; };
+    const Mark marks[] = { { -20, "20", true }, { -15, "", false }, { -10, "10", true }, { -7, "7", true }, { -6, "", false },
+                           { -5, "5", true }, { -4, "", false }, { -3, "3", true }, { -2, "2", true }, { -1, "1", true },
+                           { -0.5f, "", false }, { 0, "0", true }, { 0.5f, "", false }, { 1, "1", true }, { 1.5f, "", false },
+                           { 2, "2", true }, { 2.5f, "", false }, { 3, "3", true } };
+    for (auto& m : marks)
+    {
+        const float d = fracToDeg (dbToFrac (m.db));
+        const bool isRed = m.db > 0.0f;
+        g.setColour (isRed ? red : ink);
+        const float len = m.major ? 7.0f : 4.0f;
+        g.drawLine (Line<float> (polarP (pv, arcR, d), polarP (pv, arcR + len, d)), m.db == 0.0f ? 1.6f : 1.0f);
+        if (*m.txt)
+        {
+            g.setFont (Font (FontOptions (std::abs (m.db) >= 10 ? 8.2f : 9.0f, Font::bold)));
+            g.drawText (String (m.txt), Rectangle<float> (16, 10).withCentre (polarP (pv, arcR + 14.0f, d)), Justification::centred);
+        }
+    }
+    // + / - signs at the ends
+    g.setFont (Font (FontOptions (10.0f, Font::bold)));
+    g.setColour (ink);
+    g.drawText ("-", Rectangle<float> (10, 10).withCentre (polarP (pv, arcR + 14.0f, fracToDeg (0) - 7.0f)), Justification::centred);
+    g.setColour (red);
+    g.drawText ("+", Rectangle<float> (10, 10).withCentre (polarP (pv, arcR + 14.0f, fracToDeg (1) + 7.0f)), Justification::centred);
+
+    // percentage scale (inside the arc)
+    g.setColour (ink.withAlpha (0.85f));
+    for (int pc = 0; pc <= 100; pc += 10)
+    {
+        const float fr = ((float) pc / 100.0f - 0.1f) / (std::pow (10.0f, 0.15f) - 0.1f);
+        if (fr < 0.0f) continue;
+        const float d = fracToDeg (fr);
+        g.drawLine (Line<float> (polarP (pv, arcR - 4.0f, d), polarP (pv, arcR - 1.0f, d)), 0.8f);
+        if (pc % 20 == 0 && pc > 0)
+        {
+            g.setFont (Font (FontOptions (6.8f, Font::plain)));
+            g.drawText (String (pc), Rectangle<float> (16, 8).withCentre (polarP (pv, arcR - 10.0f, d)), Justification::centred);
+        }
+    }
+
+    // legend
+    g.setFont (Font (FontOptions (15.0f, Font::bold)).withExtraKerningFactor (0.06f));
+    g.setColour (ink);
+    g.drawText ("VU", Rectangle<float> (40, 16).withCentre ({ pv.x, pv.y - arcR * 0.66f }), Justification::centred);
+
+    // needle (with soft shadow on the card)
+    const float nd = fracToDeg (dbToFrac (needleDb));
+    const Point<float> tip = polarP (pv, arcR + 9.0f, nd);
+    const Point<float> base = polarP (pv, 44.0f, nd);
+    g.setColour (Colours::black.withAlpha (0.20f));
+    g.drawLine (Line<float> (base.translated (2.2f, 2.6f), tip.translated (2.2f, 2.6f)), 1.6f);
+    g.setColour (Colour (0xff121010));
+    g.drawLine (Line<float> (base, tip), 1.25f);
+
+    // pivot cover (black dome) and inner shadow of the bezel
+    ColourGradient dome (Colour (0xff3a3632), pv.x, fb.getBottom() - 14.0f, Colour (0xff070707), pv.x, fb.getBottom() + 4.0f, false);
+    g.setGradientFill (dome);
+    g.fillEllipse (pv.x - 26.0f, fb.getBottom() - 11.0f, 52.0f, 26.0f);
+    g.setColour (Colours::white.withAlpha (0.12f));
+    g.drawEllipse (pv.x - 26.0f, fb.getBottom() - 11.0f, 52.0f, 26.0f, 0.8f);
+
+    ColourGradient topShade (Colours::black.withAlpha (0.28f), fb.getCentreX(), fb.getY(), Colours::transparentBlack, fb.getCentreX(), fb.getY() + 14.0f, false);
+    g.setGradientFill (topShade);
+    g.fillRect (fb.withHeight (14.0f));
+
+    // glass reflection
+    Path glare;
+    glare.addEllipse (fb.getX() - fb.getWidth() * 0.15f, fb.getY() - fb.getHeight() * 0.65f, fb.getWidth() * 0.9f, fb.getHeight() * 1.05f);
+    g.setColour (Colours::white.withAlpha (0.07f));
+    g.fillPath (glare);
     g.restoreState();
+
+    g.setColour (Colours::black.withAlpha (0.65f));
+    g.strokePath (face, PathStrokeType (1.2f));
 }
 
 //==============================================================================
@@ -397,6 +567,7 @@ BottomBar::BottomBar (AudioProcessorValueTreeState& s)
     for (auto* c : std::initializer_list<Component*> { &display, &soloM, &soloS, &random, &prev, &next, &led })
         addAndMakeVisible (c);
 
+    setBufferedToImage (true);
     random.setTooltip ("Random component tolerances for L and R");
     prev.setTooltip ("Previous tolerance channel pair");
     next.setTooltip ("Next tolerance channel pair");
@@ -447,25 +618,10 @@ void BottomBar::resized()
 void BottomBar::paint (Graphics& g)
 {
     const auto b = getLocalBounds().toFloat();
-    // black anodised, brushed
-    ColourGradient bg (Colour (0xff1d1e1f), 0, 0, Colour (0xff0a0a0b), 0, b.getHeight(), false);
-    g.setGradientFill (bg);
-    g.fillRect (b);
-    {
-        Random rng (7);
-        for (int i = 0; i < 900; ++i)
-        {
-            const float y = rng.nextFloat() * b.getHeight();
-            g.setColour (Colours::white.withAlpha (0.012f + 0.012f * rng.nextFloat()));
-            g.drawHorizontalLine ((int) y, rng.nextFloat() * b.getWidth() * 0.5f, b.getWidth() * (0.5f + 0.5f * rng.nextFloat()));
-        }
-    }
-    g.setColour (Colours::white.withAlpha (0.12f));
-    g.drawHorizontalLine (1, 0, b.getWidth());
-    g.setColour (Colours::black);
-    g.drawHorizontalLine (0, 0, b.getWidth());
+    // black powder coat, same finish as the blue panel
+    paintPowderCoat (g, b, Colour (0xff1e1f20), Colour (0xff0c0c0d), 23);
 
-    // rack ear slots
+    // rack ear slots (continuing the panel's)
     for (float x : { 0.0f, b.getWidth() - 42.0f })
     {
         g.setColour (Colour (0xff020202));
@@ -487,18 +643,9 @@ void BottomBar::paint (Graphics& g)
         g.drawLine (x + 8, y + 24, x + 16, y + 24, 1.0f);
     }
 
-    // group frames
-    auto frame = [&g] (Rectangle<float> r)
-    {
-        g.setColour (Colour (0xff0e2c2a));
-        g.fillRoundedRectangle (r, 6.0f);
-        g.setColour (Colour (0xff3d4a4a));
-        g.drawRoundedRectangle (r, 6.0f, 1.5f);
-        g.setColour (Colours::black.withAlpha (0.6f));
-        g.drawRoundedRectangle (r.reduced (2.5f), 5.0f, 1.0f);
-    };
-    frame ({ 494.0f, 26.0f, 412.0f, 104.0f });
-    frame ({ 982.0f, 26.0f, 184.0f, 104.0f });
+    // TOLERANCE and SOLO groups on the same blue as the panel
+    paintPowderCoat (g, { 494.0f, 26.0f, 412.0f, 104.0f }, colours::panelTop, colours::panelBottom, 31, 6.0f);
+    paintPowderCoat (g, { 982.0f, 26.0f, 184.0f, 104.0f }, colours::panelTop, colours::panelBottom, 37, 6.0f);
 
     g.setColour (cream);
     g.setFont (uiFont (13.0f));
@@ -511,15 +658,5 @@ void BottomBar::paint (Graphics& g)
 
     g.setFont (uiFont (13.5f).withExtraKerningFactor (0.1f));
     g.drawText (String (CharPointer_UTF8 ("LINDELL PLUGINS  \xc2\xb7  VIBEALIZER")), Rectangle<float> (40.0f, 116.0f, 420.0f, 22.0f), Justification::centred);
-
-    // screws
-    for (auto p : { Point<float> (30, 24), Point<float> (b.getWidth() - 30, 24), Point<float> (30, 126), Point<float> (b.getWidth() - 30, 126) })
-    {
-        ColourGradient sg (Colour (0xff9a9a96), p.x - 4, p.y - 4, Colour (0xff2c2c2a), p.x + 4, p.y + 5, false);
-        g.setGradientFill (sg);
-        g.fillEllipse (p.x - 6, p.y - 6, 12, 12);
-        g.setColour (Colour (0xff111111));
-        g.drawLine (p.x - 4, p.y + 2, p.x + 4, p.y - 2, 1.6f);
-    }
 }
 } // namespace sa670::ui

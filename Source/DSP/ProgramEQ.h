@@ -58,6 +58,14 @@ public:
         return c[2].process (c[1].process (c[0].process (x)));
     }
 
+    /** Overall magnitude (linear) of channel 0 at f - used for the EQ curve display. */
+    double magnitude (double f) const
+    {
+        const auto& c = cuts[0];
+        return std::abs (eqp[0].response (f)) * std::abs (meq[0].response (f))
+             * c[0].c.magnitude (rate, f) * c[1].c.magnitude (rate, f) * c[2].c.magnitude (rate, f);
+    }
+
     /** Component tolerance "channel" per side (0..99). */
     void setTolerance (int ch, int seed)
     {

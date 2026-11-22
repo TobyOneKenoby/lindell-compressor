@@ -122,6 +122,18 @@ void SA670AudioProcessor::processBlock (juce::AudioBuffer<float>& buffer, juce::
         processChunk (chans, nCh, n, grMax, inSum, outSum);
     }
 
+    // feed the spectrum analyser (mono sum of the output)
+    if (analyserActive.load (std::memory_order_relaxed))
+    {
+        const int num = buffer.getNumSamples();
+        int s1, n1, s2, n2;
+        specFifo.prepareToWrite (num, s1, n1, s2, n2);
+        auto mono = [&] (int i) { return nCh > 1 ? 0.5f * (buffer.getSample (0, i) + buffer.getSample (1, i)) : buffer.getSample (0, i); };
+        for (int i = 0; i < n1; ++i) specBuffer[(size_t) (s1 + i)] = mono (i);
+        for (int i = 0; i < n2; ++i) specBuffer[(size_t) (s2 + i)] = mono (n1 + i);
+        specFifo.finishedWrite (n1 + n2);
+    }
+
     // VU movements respond to the full-wave rectified average; scale so a sine reads its RMS value
     constexpr double sineAvgToRms = 1.1107207345;
     const int N = juce::jmax (1, buffer.getNumSamples());

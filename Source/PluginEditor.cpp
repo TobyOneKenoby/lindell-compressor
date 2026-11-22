@@ -20,11 +20,16 @@ const layout::Control* findControl (const char* name)
 } // namespace
 
 SA670AudioProcessorEditor::SA670AudioProcessorEditor (SA670AudioProcessor& p)
-    : AudioProcessorEditor (&p), proc (p), bottomBar (p.apvts)
+    : AudioProcessorEditor (&p), proc (p), bottomBar (p.apvts), analyser (p)
 {
-    panel.art = ui::loadAsset ("panel_jpg");
     panel.setSize (panelW, panelH);
     addAndMakeVisible (panel);
+    art.setBounds (0, 0, ui::PanelArt::width, ui::PanelArt::height);
+    panel.addAndMakeVisible (art);
+
+    // pilot lamp + the glow it throws on the paint (under the controls)
+    lamp.setBounds (Rectangle<int> (150, 150).withCentre ({ 133, 738 }));
+    panel.addAndMakeVisible (lamp);
 
     // ---- photographic controls, positioned exactly where they sit in the artwork ----
     for (auto& c : layout::controls)
@@ -35,13 +40,11 @@ SA670AudioProcessorEditor::SA670AudioProcessorEditor (SA670AudioProcessor& p)
         controls.push_back (std::move (ctl));
     }
 
-    // pilot lamp follows the ON switch
-    lamp.setBounds (Rectangle<int> (40, 40).withCentre ({ 133, 738 }));
-    panel.addAndMakeVisible (lamp);
-    lamp.setLit (proc.apvts.getRawParameterValue (pid::power)->load() > 0.5f);
+    // pilot lamp + VU backlight follow the ON switch (warm-up / cool-down)
+    lamp.setOn (proc.apvts.getRawParameterValue (pid::power)->load() > 0.5f);
     for (auto& ctl : controls)
         if (&ctl->getParam() == proc.apvts.getParameter (pid::power))
-            ctl->onValueChange = [this] (float v) { lamp.setLit (v > 0.5f); };
+            ctl->onValueChange = [this] (float v) { lamp.setOn (v > 0.5f); };
 
     // manual attack / release (small knobs, only shown in MANUAL time constant)
     if (auto* fl = findControl ("lfBoost"))
@@ -88,15 +91,20 @@ SA670AudioProcessorEditor::SA670AudioProcessorEditor (SA670AudioProcessor& p)
                 db = 20.0f * std::log10 (lin + 1.0e-9f) + 18.0f;
             }
             return db + zeroParam->load();
-        }, c == 0 ? 0.0f : 270.0f);
+        }, c == 0 ? 0.0f : 269.0f);
         panel.addAndMakeVisible (*needles[c]);
     }
+    lamp.onBrightness = [this] (float b) { for (auto& n : needles) if (n) n->setBacklight (0.12f + 0.88f * b); };
 
     bottomBar.setBounds (0, rackH, panelW, ui::BottomBar::height);
     panel.addAndMakeVisible (bottomBar);
 
+    // DISPLAY: spectrum analyser + EQ curve below the unit
+    analyser.setBounds (0, panelH, panelW, ui::Analyser::height);
+    panel.addChildComponent (analyser);
+
     panel.addChildComponent (bubble);
-    bubble.enabled = proc.apvts.getRawParameterValue (pid::display)->load() > 0.5f;
+    bubble.enabled = true;
     proc.apvts.addParameterListener (pid::display, this);
 
     // L/R control ganging (LINK switch, or AGC in stereo LINK mode): both directions
@@ -107,9 +115,8 @@ SA670AudioProcessorEditor::SA670AudioProcessorEditor (SA670AudioProcessor& p)
             proc.apvts.addParameterListener (params::ch (m, c), this);
 
     setResizable (true, true);
-    setResizeLimits (panelW / 3, panelH / 3, panelW * 2, panelH * 2);
-    if (auto* cons = getConstrainer()) cons->setFixedAspectRatio ((double) panelW / (double) panelH);
     setSize ((int) (panelW * 0.62f), (int) (panelH * 0.62f));
+    showAnalyser (proc.apvts.getRawParameterValue (pid::display)->load() > 0.5f);
 }
 
 SA670AudioProcessorEditor::~SA670AudioProcessorEditor()
@@ -128,7 +135,7 @@ void SA670AudioProcessorEditor::parameterChanged (const String& id, float v)
     MessageManager::callAsync ([safe = Component::SafePointer<SA670AudioProcessorEditor> (this), id, v]
     {
         if (safe == nullptr) return;
-        if (id == pid::display) { safe->bubble.enabled = v > 0.5f; if (! safe->bubble.enabled) safe->bubble.hide(); return; }
+        if (id == pid::display) { safe->showAnalyser (v > 0.5f); return; }
         if (id == pid::chLink || id == pid::agcMode) { safe->mirrorChannels (0); return; }   // link engaged: right takes left
         safe->mirrorChannels (id.endsWithChar ('2') ? 1 : 0);
     });
@@ -158,6 +165,18 @@ void SA670AudioProcessorEditor::mirrorChannels (int from)
             dst->endChangeGesture();
         }
     }
+}
+
+void SA670AudioProcessorEditor::showAnalyser (bool show)
+{
+    const float scale = (float) getWidth() / (float) panelW;
+    logicalH = panelH + (show ? ui::Analyser::height : 0);
+    panel.setSize (panelW, logicalH);
+    analyser.setVisible (show);
+
+    setResizeLimits (panelW / 3, logicalH / 3, panelW * 2, logicalH * 2);
+    if (auto* cons = getConstrainer()) cons->setFixedAspectRatio ((double) panelW / (double) logicalH);
+    setSize (getWidth(), roundToInt ((float) logicalH * scale));
 }
 
 void SA670AudioProcessorEditor::paint (Graphics& g)

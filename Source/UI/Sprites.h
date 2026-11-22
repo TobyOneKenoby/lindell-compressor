@@ -5,6 +5,18 @@
 
 namespace sa670::ui
 {
+namespace colours
+{
+    // sampled from the panel artwork
+    inline const juce::Colour panelTop    { 0xff2b5d6b };
+    inline const juce::Colour panelBottom { 0xff1f4f5d };
+}
+
+/** Powder-coated metal: gradient, fine grain, vignette and bevelled edge
+    (same treatment as the blue panel artwork). */
+void paintPowderCoat (juce::Graphics&, juce::Rectangle<float> area, juce::Colour top, juce::Colour bottom,
+                      int seed, float cornerRadius = 0.0f);
+
 /** Loads a PNG/JPEG embedded via juce_add_binary_data (cached). */
 juce::Image loadAsset (const juce::String& resourceName);
 
@@ -26,7 +38,7 @@ private:
     Continuous parameters rotate between steps[0] and steps[1]; choice
     parameters snap to one angle per position. Fluted knobs keep the sprite
     static (so the studio lighting stays put) and draw the index line. */
-class SpriteControl : public juce::Component, public juce::SettableTooltipClient
+class SpriteControl : public juce::Component, public juce::SettableTooltipClient, private juce::Timer
 {
 public:
     SpriteControl (juce::AudioProcessorValueTreeState&, const layout::Control&, const juce::String& paramId, ValueBubble*, float scale = 1.0f);
@@ -50,6 +62,12 @@ private:
     float currentAngle() const;
     void setNormalised (float v01);
     void showValue();
+    void timerCallback() override;
+    void animateTo();
+
+    // animation state: displayed angle glides to the target, toggles swing over
+    float shownAngle = 0.0f, shownFlip = 1.0f;
+    bool initialised = false;
 
     const layout::Control& info;
     juce::RangedAudioParameter& param;
@@ -69,13 +87,14 @@ class VUNeedle : public juce::Component, private juce::Timer
 public:
     VUNeedle (std::function<float()> sourceVU, float yOffset);
     void paint (juce::Graphics&) override;
+    void setBacklight (float b) { backlight = juce::jlimit (0.0f, 1.0f, b); }
 
 private:
     void timerCallback() override;
     juce::Point<float> scalePoint (float db) const;
     std::function<float()> source;
     float dy;
-    float needleDb = -22.0f, velocity = 0.0f;
+    float needleDb = -22.0f, velocity = 0.0f, backlight = 1.0f;
 };
 
 //==============================================================================

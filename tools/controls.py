@@ -20,4 +20,4 @@ CONTROLS = {
     "zero1": ("screw", 428, 690), "bal1": ("screw", 546, 690), "zero2": ("screw", 428, 960), "bal2": ("screw", 546, 960),
 }
 # radius of the area that belongs to the control (incl. its drop shadow)
-RADIUS = {"fluted": 74, "chicken": 50, "chicken_s": 52, "bar": 52, "smallchick": 42, "meterknob": 100, "toggle": 30, "screw": 12}
+RADIUS = {"fluted": 74, "chicken": 50, "chicken_s": 52, "bar": 64, "smallchick": 42, "meterknob": 100, "toggle": 30, "screw": 12}

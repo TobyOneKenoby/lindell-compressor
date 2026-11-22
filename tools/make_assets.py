@@ -29,8 +29,47 @@ def silhouette(t,x,y):
         if (core&(lab==i)).any(): keep|=(lab==i).astype(np.uint8)
     keep=cv2.morphologyEx(keep,cv2.MORPH_CLOSE,np.ones((3,3),np.uint8))
     keep=fill_holes(keep)
+    if t=="fluted":
+        # the skirt is round: nothing outside it belongs to the knob (scale digits!)
+        # round knob: use the convex outline (catches the lit flute tops)
+        keep&=((xx-x)**2+(yy-y)**2<70*70).astype(np.uint8)
+        cnts,_=cv2.findContours(keep,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
+        hull=np.zeros_like(keep); cv2.fillPoly(hull,[cv2.convexHull(np.vstack(cnts))],1)
+        return hull
     if t!="toggle":
-        # cream index stripes / highlights that lie inside the knob outline belong to it
+        # cream index stripes that touch the knob body belong to it; loose scale
+        # digits (separated by a gap of panel paint) do not
+        bright=(disc&(chroma<30)&(v>=150)).astype(np.uint8)
+        nb,lb=cv2.connectedComponents(bright)
+        near=cv2.dilate(keep,np.ones((3,3),np.uint8))
+        ky,kx=np.nonzero(keep); reach=np.hypot(kx-x,ky-y).max()
+        dist=np.hypot(xx-x,yy-y)
+        for i in range(1,nb):
+            comp=(lb==i)
+            if (comp&(near>0)).sum()>=3: keep|=(comp&(dist<=reach-1.0)).astype(np.uint8)
+        keep=fill_holes(keep)
+        # trim anything beyond the reach of the solid black body (digit fragments)
+        body=keep.astype(bool)&(v<85)
+        by,bx=np.nonzero(body)
+        if len(bx):
+            ang=np.degrees(np.arctan2(xx-x,-(yy-y)))
+            bang=np.degrees(np.arctan2(bx-x,-(by-y))); bd=np.hypot(bx-x,by-y)
+            # per 6-degree sector: furthest body pixel
+            reachS=np.zeros(60)
+            np.maximum.at(reachS,((bang+180)//6).astype(int)%60,bd)
+            reachS=np.maximum(reachS,np.roll(reachS,1)); reachS=np.maximum(reachS,np.roll(reachS,-1))
+            sector=((ang+180)//6).astype(int)%60
+            keep&=(np.hypot(xx-x,yy-y)<=reachS[sector]+1.5).astype(np.uint8)
+        # bright specks that are not embedded in black knob material = printed digits
+        dens=cv2.blur(body.astype(np.float32),(7,7))
+        br=(keep.astype(bool)&(v>=120)).astype(np.uint8)
+        nb2,lb2,st2,_=cv2.connectedComponentsWithStats(br)
+        for i in range(1,nb2):
+            comp=lb2==i
+            if st2[i,4]<40 and dens[comp].mean()<0.45:
+                keep[cv2.dilate(comp.astype(np.uint8),np.ones((3,3),np.uint8)).astype(bool)&(v>=95)]=0
+        return keep
+    if False:
         cnts,_=cv2.findContours(keep,cv2.RETR_EXTERNAL,cv2.CHAIN_APPROX_SIMPLE)
         hull=np.zeros_like(keep); cv2.fillPoly(hull,[cv2.convexHull(np.vstack(cnts))],1)
         hull=cv2.erode(hull,np.ones((3,3),np.uint8))
