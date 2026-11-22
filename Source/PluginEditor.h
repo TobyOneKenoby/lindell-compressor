@@ -26,7 +26,8 @@ private:
     };
 
     void parameterChanged (const juce::String& id, float newValue) override;
-    void mirrorLeftToRight();
+    void mirrorChannels (int fromChannel);
+    bool controlsLinked() const;
 
     SA670AudioProcessor& proc;
     Panel panel;
@@ -37,7 +38,6 @@ private:
     sa670::ui::BottomBar bottomBar;
     sa670::ui::SpriteControl* manualKnobs[2][2] {};
     bool mirroring = false;
-    juce::TooltipWindow tooltips { this, 900 };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (SA670AudioProcessorEditor)
 };

@@ -155,7 +155,7 @@ void SA670AudioProcessor::processChunk (float* const* chans, int nCh, int n, flo
     const bool stereo = nCh == 2;
     const bool ms = stereo && (mode == 2 || mode == 3);
     const bool link = stereo && (mode == 1 || mode == 3);
-    const bool ctrlLink = chLink->load() > 0.5f;   // right channel follows left controls
+    const bool ctrlLink = chLink->load() > 0.5f || mode == 1;   // ganged controls (LINK switch or stereo LINK)
 
     for (int c = 0; c < nCh; ++c)
     {

@@ -99,10 +99,12 @@ SA670AudioProcessorEditor::SA670AudioProcessorEditor (SA670AudioProcessor& p)
     bubble.enabled = proc.apvts.getRawParameterValue (pid::display)->load() > 0.5f;
     proc.apvts.addParameterListener (pid::display, this);
 
-    // L/R link mirroring
+    // L/R control ganging (LINK switch, or AGC in stereo LINK mode): both directions
     proc.apvts.addParameterListener (pid::chLink, this);
+    proc.apvts.addParameterListener (pid::agcMode, this);
     for (auto* m : mirroredParams)
-        proc.apvts.addParameterListener (params::ch (m, 0), this);
+        for (int c = 0; c < 2; ++c)
+            proc.apvts.addParameterListener (params::ch (m, c), this);
 
     setResizable (true, true);
     setResizeLimits (panelW / 3, panelH / 3, panelW * 2, panelH * 2);
@@ -114,8 +116,10 @@ SA670AudioProcessorEditor::~SA670AudioProcessorEditor()
 {
     proc.apvts.removeParameterListener (pid::display, this);
     proc.apvts.removeParameterListener (pid::chLink, this);
+    proc.apvts.removeParameterListener (pid::agcMode, this);
     for (auto* m : mirroredParams)
-        proc.apvts.removeParameterListener (params::ch (m, 0), this);
+        for (int c = 0; c < 2; ++c)
+            proc.apvts.removeParameterListener (params::ch (m, c), this);
 }
 
 void SA670AudioProcessorEditor::parameterChanged (const String& id, float v)
@@ -125,25 +129,33 @@ void SA670AudioProcessorEditor::parameterChanged (const String& id, float v)
     {
         if (safe == nullptr) return;
         if (id == pid::display) { safe->bubble.enabled = v > 0.5f; if (! safe->bubble.enabled) safe->bubble.hide(); return; }
-        safe->mirrorLeftToRight();
+        if (id == pid::chLink || id == pid::agcMode) { safe->mirrorChannels (0); return; }   // link engaged: right takes left
+        safe->mirrorChannels (id.endsWithChar ('2') ? 1 : 0);
     });
 }
 
-void SA670AudioProcessorEditor::mirrorLeftToRight()
+bool SA670AudioProcessorEditor::controlsLinked() const
 {
-    if (mirroring || proc.apvts.getRawParameterValue (pid::chLink)->load() < 0.5f)
+    // LINK switch, or AGC in stereo "LINK" mode
+    return proc.apvts.getRawParameterValue (pid::chLink)->load() > 0.5f
+        || std::lround (proc.apvts.getRawParameterValue (pid::agcMode)->load()) == 1;
+}
+
+void SA670AudioProcessorEditor::mirrorChannels (int from)
+{
+    if (mirroring || ! controlsLinked())
         return;
 
     const ScopedValueSetter<bool> svs (mirroring, true);
     for (auto* m : mirroredParams)
     {
-        auto* l = proc.apvts.getParameter (params::ch (m, 0));
-        auto* r = proc.apvts.getParameter (params::ch (m, 1));
-        if (l != nullptr && r != nullptr && std::abs (r->getValue() - l->getValue()) > 1.0e-6f)
+        auto* src = proc.apvts.getParameter (params::ch (m, from));
+        auto* dst = proc.apvts.getParameter (params::ch (m, 1 - from));
+        if (src != nullptr && dst != nullptr && std::abs (dst->getValue() - src->getValue()) > 1.0e-6f)
         {
-            r->beginChangeGesture();
-            r->setValueNotifyingHost (l->getValue());
-            r->endChangeGesture();
+            dst->beginChangeGesture();
+            dst->setValueNotifyingHost (src->getValue());
+            dst->endChangeGesture();
         }
     }
 }
