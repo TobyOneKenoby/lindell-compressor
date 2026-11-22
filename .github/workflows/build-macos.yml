@@ -47,13 +47,24 @@ jobs:
           name: SA-670-macOS-VST3-AU
           path: dist
 
+      - name: Build drag-and-drop DMG
+        run: |
+          mkdir -p dmg
+          cp -R dist/SA-670.vst3 dmg/
+          ln -s /Library/Audio/Plug-Ins/VST3 "dmg/VST3 Plug-Ins"
+          cat > "dmg/Installera.txt" <<'TXT'
+          Dra SA-670.vst3 till mappen "VST3 Plug-Ins" och starta om din DAW.
+          (Alternativt: lägg den i ~/Library/Audio/Plug-Ins/VST3 i din hemmapp.)
+          TXT
+          hdiutil create -volname "SA-670" -srcfolder dmg -ov -format UDZO SA-670-VST3-macOS.dmg
+
       - name: Publish pre-release (permanent download link, no login needed)
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           (cd dist && ditto -c -k --keepParent SA-670.vst3 ../SA-670-VST3-macOS.zip)
           gh release delete sa670-latest --yes --cleanup-tag || true
-          gh release create sa670-latest SA-670-VST3-macOS.zip \
+          gh release create sa670-latest SA-670-VST3-macOS.dmg SA-670-VST3-macOS.zip \
             --target "${{ github.sha }}" --prerelease \
             --title "SA-670 VST3 for macOS" \
             --notes "Universal VST3 (Apple Silicon + Intel), ad-hoc signed. Install to ~/Library/Audio/Plug-Ins/VST3/ and run: xattr -dr com.apple.quarantine ~/Library/Audio/Plug-Ins/VST3/SA-670.vst3"
