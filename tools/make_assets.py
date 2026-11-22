@@ -3,6 +3,9 @@ Outputs Resources/sprites/*.png and Source/UI/Layout.h"""
 import cv2, numpy as np, sys, os, json
 sys.path.insert(0,'tools'); from controls import CONTROLS, RADIUS
 src=cv2.imread('Resources/panel_source.webp').astype(np.float32)
+# optional AI-upscaled source (tools/upscale.py) -> sprites are written at 2x
+_src2=cv2.imread('Resources/panel_source_2x.webp')
+src2=_src2.astype(np.float32) if _src2 is not None else None
 clean=cv2.imread('Resources/panel_clean.png').astype(np.float32)
 H,W=src.shape[:2]; yy,xx=np.mgrid[0:H,0:W]
 def feats(im):
@@ -129,15 +132,27 @@ for name,(t,x0,y0) in CONTROLS.items():
         cream&=((xx-px)**2+(yy-py)**2>(0.55*half)**2)&(ang>-175)&(ang<-115)
     cy_,cx_=np.nonzero(cream)
     baked=float(np.degrees(np.arctan2(cx_.mean()-px,-(cy_.mean()-py)))) if len(cx_)>5 else 0.0
+    cm=None
     if t=="fluted":
         # remove the baked index line (drawn at runtime instead)
         cm=cv2.dilate(cream[Y0:Y0+S,X0:X0+S].astype(np.uint8),np.ones((5,5),np.uint8))
         crop=cv2.inpaint(np.clip(crop,0,255).astype(np.uint8),cm*255,5,cv2.INPAINT_TELEA).astype(np.float32)
+    K=1
+    if src2 is not None:
+        # 2x: take the pixels from the upscaled photo, upsample the matte
+        K=2
+        crop2=src2[2*Y0:2*Y0+2*S,2*X0:2*X0+2*S].copy()
+        if t=="fluted":
+            cm2=cv2.resize(cm,(2*S,2*S),interpolation=cv2.INTER_NEAREST)
+            cm2=cv2.dilate(cm2,np.ones((5,5),np.uint8))
+            crop2=cv2.inpaint(np.clip(crop2,0,255).astype(np.uint8),cm2*255,9,cv2.INPAINT_TELEA).astype(np.float32)
+        a=np.clip(cv2.resize(a,(2*S,2*S),interpolation=cv2.INTER_CUBIC),0,1)
+        crop=crop2
     rgba=np.dstack([np.clip(crop,0,255),np.clip(a*255,0,255)]).astype(np.uint8)
     cv2.imwrite(f'Resources/sprites/{name}.png',rgba)
     # shadow: blurred silhouette
-    pad=16; sh=np.zeros((S+2*pad,S+2*pad),np.float32); sh[pad:pad+S,pad:pad+S]=a
-    sh=cv2.GaussianBlur(sh,(0,0),5.0)
+    pad=16*K; SS=S*K; sh=np.zeros((SS+2*pad,SS+2*pad),np.float32); sh[pad:pad+SS,pad:pad+SS]=a
+    sh=cv2.GaussianBlur(sh,(0,0),5.0*K)
     cv2.imwrite(f'Resources/sprites/{name}_sh.png',np.dstack([np.zeros_like(sh)]*3+[np.clip(sh*255,0,255)]).astype(np.uint8))
 
     # step / range angles from the printed scale

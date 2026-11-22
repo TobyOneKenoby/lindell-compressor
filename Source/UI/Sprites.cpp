@@ -1,5 +1,6 @@
 #include "Sprites.h"
 #include "BinaryData.h"
+#include "PanelArt.h"
 
 namespace sa670::ui
 {
@@ -164,9 +165,12 @@ void SpriteControl::paint (Graphics& g)
     const float S = (float) info.size;
     const float shadowOffX = 5.0f * scale, shadowOffY = 9.0f * scale;
 
-    auto spriteTransform = [&] (float rotationDeg, float flipV, float pad)
+    // sprites may be stored at 2x; work in image pixels and scale back to panel units
+    const float imgScale = (float) sprite.getWidth() / S;
+    auto spriteTransform = [&] (float rotationDeg, float flipV, float padImg)
     {
-        auto t = AffineTransform::translation (-(S * 0.5f + pad), -(S * 0.5f + pad));
+        const float half = (float) sprite.getWidth() * 0.5f + padImg;
+        auto t = AffineTransform::translation (-half, -half).scaled (1.0f / imgScale);
         // lever swinging through centre: foreshortened, never quite zero height
         if (flipV != 1.0f) t = t.scaled (1.0f, std::copysign (jmax (0.12f, std::abs (flipV)), flipV));
         t = t.rotated (degreesToRadians (rotationDeg)).scaled (scale).translated (c);
@@ -195,9 +199,10 @@ void SpriteControl::paint (Graphics& g)
     if (info.kind != layout::Kind::Screw)
     {
         g.setOpacity (info.kind == layout::Kind::Toggle ? 0.55f : 0.75f);
-        g.drawImageTransformed (shadow, spriteTransform (rot, flip, 16.0f).translated (shadowOffX, shadowOffY));
+        g.drawImageTransformed (shadow, spriteTransform (rot, flip, (float) (shadow.getWidth() - sprite.getWidth()) * 0.5f).translated (shadowOffX, shadowOffY));
         g.setOpacity (1.0f);
     }
+    g.setImageResamplingQuality (Graphics::highResamplingQuality);
     g.drawImageTransformed (sprite, spriteTransform (rot, flip, 0.0f));
 
     if (info.kind == layout::Kind::Fluted)
@@ -375,12 +380,35 @@ void VUNeedle::paint (Graphics& g)
     // backlight warms up / cools down with the unit (unlit card is a dull ivory)
     const float bl = backlight;
     auto lit = [bl] (uint32 on, uint32 off) { return Colour (off).interpolatedWith (Colour (on), bl); };
-    ColourGradient card (lit (0xfffcecc4, 0xff8f8672), fb.getCentreX(), fb.getY() + fb.getHeight() * 0.62f,
-                         lit (0xffc98c43, 0xff5c5446), fb.getX() - 6.0f, fb.getBottom(), true);
-    card.addColour (0.55, lit (0xfff1d08e, 0xff7d7563));
+    // colours sampled from the photographed meter: lamp-lit amber, brighter at the top
+    ColourGradient card (lit (0xfffde0a0, 0xff8f8672), fb.getCentreX(), fb.getY() + fb.getHeight() * 0.30f,
+                         lit (0xffcf9550, 0xff5c5446), fb.getX() - 8.0f, fb.getBottom() + 6.0f, true);
+    card.addColour (0.45, lit (0xffe9b46c, 0xff7d7563));
     g.setGradientFill (card);
     g.fillRect (fb);
 
+    // printed card: fine paper grain and uneven light, like the real thing behind glass
+    {
+        static const Image paper = []
+        {
+            Image img (Image::ARGB, 256, 256, true);
+            Random rng (19);
+            Image::BitmapData bd (img, Image::BitmapData::writeOnly);
+            for (int y = 0; y < 256; ++y)
+                for (int x = 0; x < 256; ++x)
+                {
+                    const float v = rng.nextFloat();
+                    bd.setPixelColour (x, y, (v > 0.5f ? Colour (0xffffffff) : Colour (0xff4a3418)).withAlpha ((uint8) (std::abs (v - 0.5f) * 2.0f * 22.0f)));
+                }
+            return img;
+        }();
+        g.setFillType (FillType (paper, AffineTransform::scale (0.25f)));
+        g.fillRect (fb);
+        ColourGradient hot (Colours::white.withAlpha (0.10f * bl), fb.getCentreX() - 18.0f, fb.getY() + fb.getHeight() * 0.55f,
+                            Colours::transparentWhite, fb.getCentreX() + 40.0f, fb.getY(), true);
+        g.setGradientFill (hot);
+        g.fillRect (fb);
+    }
     const Colour ink (0xff1d1712), red (0xffc4261b);
     const float f0 = dbToFrac (0.0f);
 
@@ -408,12 +436,12 @@ void VUNeedle::paint (Graphics& g)
         g.drawLine (Line<float> (polarP (pv, arcR, d), polarP (pv, arcR + len, d)), m.db == 0.0f ? 1.6f : 1.0f);
         if (*m.txt)
         {
-            g.setFont (Font (FontOptions (std::abs (m.db) >= 10 ? 8.2f : 9.0f, Font::bold)));
+            g.setFont (panelFont (std::abs (m.db) >= 10 ? 8.0f : 8.8f, true));
             g.drawText (String (m.txt), Rectangle<float> (16, 10).withCentre (polarP (pv, arcR + 14.0f, d)), Justification::centred);
         }
     }
     // + / - signs at the ends
-    g.setFont (Font (FontOptions (10.0f, Font::bold)));
+    g.setFont (panelFont (9.5f, true));
     g.setColour (ink);
     g.drawText ("-", Rectangle<float> (10, 10).withCentre (polarP (pv, arcR + 14.0f, fracToDeg (0) - 7.0f)), Justification::centred);
     g.setColour (red);
@@ -429,13 +457,13 @@ void VUNeedle::paint (Graphics& g)
         g.drawLine (Line<float> (polarP (pv, arcR - 4.0f, d), polarP (pv, arcR - 1.0f, d)), 0.8f);
         if (pc % 20 == 0 && pc > 0)
         {
-            g.setFont (Font (FontOptions (6.8f, Font::plain)));
+            g.setFont (panelFont (6.4f));
             g.drawText (String (pc), Rectangle<float> (16, 8).withCentre (polarP (pv, arcR - 10.0f, d)), Justification::centred);
         }
     }
 
     // legend
-    g.setFont (Font (FontOptions (15.0f, Font::bold)).withExtraKerningFactor (0.06f));
+    g.setFont (panelFont (14.0f, true).withExtraKerningFactor (0.06f));
     g.setColour (ink);
     g.drawText ("VU", Rectangle<float> (40, 16).withCentre ({ pv.x, pv.y - arcR * 0.66f }), Justification::centred);
 

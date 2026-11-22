@@ -77,16 +77,20 @@ VU-mätarna läser medelvärdet av likriktad signal (0 VU = −18 dBFS). Visaren
 
 ## GUI
 
-- **Panelen ritas helt som vektor** (`Source/UI/PanelArt.cpp`): pulverlack, rackfästen, skruvar, alla texter och skalor, VU-hus och lampa. Den cachas i skärmens upplösning, så den är skarp på Retina. Typsnitt: Jost (SIL OFL, `Resources/fonts`).
-- **Rattar och spakar** är fotografiska sprites ur din panelbild (`Resources/panel_source.webp`). `tools/clean_panel.py` och `tools/make_assets.py` skär ut dem och mäter skalvinklarna till `Source/UI/Layout.h`:
-
-  ```bash
-  python3 tools/clean_panel.py && python3 tools/make_assets.py
-  ```
-
-- **VU-mätarna** är vektorritade med standardens ballistik.
+- **Panelen är fotot** (`Resources/panel_source.webp`). Bakgrunden är rensad från rattar, visare och skuggor och sedan AI-uppskalad till 2x för Retina med Real-ESRGAN (`tools/upscale.py`). Pulverlackens korn läggs tillbaka efteråt (`tools/finish_2x.py`).
+- **Rattar och spakar** är fotografiska sprites i 2x, utskurna ur det uppskalade fotot. Skalvinklarna mäts automatiskt till `Source/UI/Layout.h`.
+- **VU-tavlorna** ritas med korrekt geometri och fotots färger, papperskorn och glas. Visaren följer standardens ballistik.
 - **Levande detaljer:** lampan värms upp och lyser på panelen, VU-belysningen följer ON, spakarna svänger och rattarna glider.
 - **DISPLAY** öppnar en spektrumanalysator med EQ-kurvan, beräknad från kretsmodellen.
+
+Så bygger du om grafiken (kräver opencv-python-headless, numpy och ncnn):
+
+```bash
+python3 tools/clean_panel.py
+python3 tools/upscale.py <realesrgan-models> Resources/panel_clean.png clean_2x.png 2
+python3 tools/finish_2x.py clean_2x.png Resources/panel2x.jpg
+python3 tools/make_assets.py
+```
 
 ## Test
 

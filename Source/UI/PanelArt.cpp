@@ -204,154 +204,16 @@ PanelArt::PanelArt()
 
 void PanelArt::paint (Graphics& g)
 {
-    const auto b = getLocalBounds().toFloat();
-
-    // ---- panel shape with rack-ear slots ----
-    Path panel;
-    panel.addRoundedRectangle (b.reduced (1.5f), 5.0f);
-    for (float y : { 120.0f, 440.0f, 765.0f, 1080.0f })
+    // the photograph of the panel, AI-upscaled to 2x for Retina
+    static const Image photo = []
     {
-        Path l, r;
-        l.addRoundedRectangle (-20.0f, y - 9.0f, 62.0f, 18.0f, 9.0f);
-        r.addRoundedRectangle (b.getWidth() - 42.0f, y - 9.0f, 62.0f, 18.0f, 9.0f);
-        panel.addPath (l);
-        panel.addPath (r);
-    }
-    panel.setUsingNonZeroWinding (false);
-
+        int size = 0;
+        auto* data = BinaryData::getNamedResource ("panel2x_jpg", size);
+        return data != nullptr ? ImageCache::getFromMemory (data, size) : Image();
+    }();
     g.fillAll (Colour (0xff0d0f10));
-    {
-        Graphics::ScopedSaveState ss (g);
-        g.reduceClipRegion (panel);
-
-        ColourGradient paint (paintTop, 0, 0, paintBottom, 0, b.getHeight(), false);
-        paint.addColour (0.45, paintMid);
-        g.setGradientFill (paint);
-        g.fillRect (b);
-
-        // powder-coat grain: a fine noise tile at 1/3 unit per texel (crisp up to 3x)
-        static const Image grain = []
-        {
-            Image img (Image::ARGB, 384, 384, true);
-            Random rng (670);
-            Image::BitmapData bd (img, Image::BitmapData::writeOnly);
-            for (int y = 0; y < img.getHeight(); ++y)
-                for (int x = 0; x < img.getWidth(); ++x)
-                {
-                    const float v = rng.nextFloat();
-                    const bool light = v > 0.5f;
-                    const uint8 a = (uint8) (std::pow (std::abs (v - 0.5f) * 2.0f, 2.2f) * 34.0f);
-                    bd.setPixelColour (x, y, Colour (light ? 0xffffffffu : 0xff000000u).withAlpha (a));
-                }
-            return img;
-        }();
-        g.setFillType (FillType (grain, AffineTransform::scale (1.0f / 3.0f)));
-        g.fillRect (b);
-        // second, coarser layer: the orange-peel of real powder coat
-        g.setFillType (FillType (grain, AffineTransform::scale (0.9f).rotated (0.7f)));
-        g.setOpacity (0.35f);
-        g.fillRect (b);
-        g.setOpacity (1.0f);
-
-        // studio lighting: soft hot-spot upper centre, falloff to the corners
-        ColourGradient light (Colours::white.withAlpha (0.06f), b.getCentreX(), b.getHeight() * 0.28f,
-                              Colours::black.withAlpha (0.32f), 0.0f, b.getHeight() * 1.05f, true);
-        g.setGradientFill (light);
-        g.fillRect (b);
-
-        // section split between EQ and compressor
-        g.setColour (Colours::black.withAlpha (0.38f));
-        g.drawLine (44, 452.5f, b.getWidth() - 44, 452.5f, 1.4f);
-        g.setColour (Colours::white.withAlpha (0.07f));
-        g.drawLine (44, 454.2f, b.getWidth() - 44, 454.2f, 1.0f);
-    }
-    // bevelled edge
-    g.setColour (Colours::white.withAlpha (0.14f));
-    g.strokePath (panel, PathStrokeType (1.3f), AffineTransform::translation (0.5f, 0.6f));
-    g.setColour (Colours::black.withAlpha (0.75f));
-    g.strokePath (panel, PathStrokeType (1.0f));
-
-    // ---- panel screws ----
-    const Point<float> screws[] = { { 88, 162 }, { 1222, 162 }, { 88, 460 }, { 1222, 460 }, { 88, 740 },
-                                    { 1222, 740 }, { 88, 1030 }, { 1222, 1030 }, { 655, 1172 } };
-    int k = 0;
-    for (auto s : screws) screw (g, s, 7.5f, 18.0f + 37.0f * (float) (k++));
-
-    // ---- hardware drawn on the panel ----
-    vuHousing (g, { 172.0f, 489.0f, 206.0f, 216.0f });
-    vuHousing (g, { 172.0f, 759.0f, 206.0f, 216.0f });
-    lampBezel (g, { 133.0f, 738.0f });
-
-    // ---- legends (screen print) ----
-    g.setColour (legend);
-    const StringArray zeroTen { "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10" };
-
-    // EQ row 1
-    text (g, "BOOST", 216, 47, 14); text (g, "ATTEN", 397, 47, 14); text (g, "ATTEN/BOOST", 588, 47, 14);
-    text (g, "BOOST", 776, 47, 14); text (g, "ATTEN", 965, 47, 14); text (g, "ATTEN SEL", 1126, 47, 14);
-    for (auto* n : { "lfBoost", "lfAtten", "midAmt", "hfBoost", "hfAtten", "bandwidth" })
-        numberScale (g, n, zeroTen, 83.0f, 14.0f, 2, 72.0f, 1.9f);
-    stepScale (g, "attenSel", { "5", "10", "20" }, 56.0f, 13.5f);
-    text (g, "IN", 118, 193, 13.5f); text (g, "TUBE", 1171, 182, 13.5f); text (g, "SS", 1171, 259, 13.5f);
-
-    // EQ row 2
-    text (g, "CPS", 172, 259, 13.5f); text (g, "CPS", 346, 259, 13.5f); text (g, "KCS", 928, 260, 13.5f); text (g, "KCS", 1110, 260, 13.5f);
-    stepScale (g, "lowCut", { "OFF", "50", "80", "100", "150", "250", "500", "750", "1000", "1500", "2000" }, 63.0f, 13.0f);
-    stepScale (g, "lfFreq", { "20", "30", "60", "100" }, 64.0f, 13.5f);
-    stepScale (g, "midFreq", { "200", "300", "500", "700", "1", "1.5", "2", "3", "4", "5", "7" }, 62.0f, 13.0f);
-    stepScale (g, "hfFreq", { "3", "4", "5", "8", "10", "12", "16" }, 63.0f, 13.5f);
-    stepScale (g, "highCut", { "1.5", "2", "3", "4", "5", "6", "8", "10", "12", "15", "OFF" }, 64.0f, 13.0f);
-    text (g, "BOOST", 627, 315, 13.5f); text (g, "ATTEN", 627, 381, 13.5f);
-    text (g, "SHARP", 670, 416, 12.0f); text (g, "BROAD", 849, 416, 12.0f);
-    text (g, "LOW CUT-OFF", 173, 445, 14.5f); text (g, "LOW FREQUENCY", 338, 444, 14.5f); text (g, "MID", 513, 444, 14.5f);
-    text (g, "BANDWIDTH", 758, 444, 14.5f); text (g, "HIGH FREQUENCY", 928, 444, 14.5f); text (g, "HIGH CUT-OFF", 1112, 445, 14.5f);
-
-    // compressor
-    const float titleY[] = { 486.0f, 745.0f };
-    const char* side[] = { "LEFT - LAT", "RIGHT - VERT" };
-    for (int c = 0; c < 2; ++c)
-    {
-        const float ty = titleY[c];
-        text (g, side[c], 486, ty, 12.5f); text (g, "METERING", 486, ty + 14, 12.5f);
-        text (g, c == 0 ? "LEFT CHANNEL" : "RIGHT CHANNEL", 700, ty, 12.5f); text (g, "INPUT GAIN", 700, ty + 14, 12.5f);
-        text (g, side[c], 928, ty, 12.5f); text (g, "THRESHOLD", 928, ty + 14, 12.5f);
-
-        const auto* m = ctl (c == 0 ? "meter1" : "meter2");
-        textOnArc (g, "BAL", { m->x, m->y }, 80.0f, m->steps[0] - 3.0f, 12.0f);
-        textOnArc (g, "ZERO", { m->x, m->y }, 82.0f, m->steps[1], 12.0f);
-        textOnArc (g, "BAL", { m->x, m->y }, 80.0f, m->steps[2] + 3.0f, 12.0f);
-        const float sy = c == 0 ? 670.0f : 940.0f;
-        text (g, "ZERO", 428, sy, 12.0f); text (g, "BAL", 547, sy, 12.0f);
-
-        numberScale (g, c == 0 ? "inGain1" : "inGain2", { "0", "2", "4", "6", "8", "10", "12", "14", "16", "18", "20" }, 83.0f, 12.0f, 2, 72.0f, 1.8f);
-        numberScale (g, c == 0 ? "thresh1" : "thresh2", zeroTen, 83.0f, 12.5f, 2, 72.0f, 1.8f);
-
-        const char* tc = c == 0 ? "tc1" : "tc2";
-        const float tcTitle = c == 0 ? 486.0f : 828.0f;
-        text (g, side[c], 1138, tcTitle, 12.5f); text (g, "TIME CONSTANT", 1138, tcTitle + 14, 12.5f);
-        stepScale (g, tc, { "1", "2", "3", "4", "5", "6", "MANUAL" }, 44.0f, 12.0f);
-    }
-    text (g, "ON", 132, 577, 13.5f);
-    text (g, "LINK", 130, 848, 13.5f);
-    text (g, "AGC", 1138, 663, 13.5f);
-    listScale (g, "agcMode", { "INDEPENDENT", "LINK", "MID-SIDE", "MID-SIDE LINK" }, 48.0f, 11.0f);
-
-    // bottom row
-    text (g, "AGC FILTER", 230, 1006, 13.5f);
-    text (g, "LEFT - LAT", 169, 1025, 12.5f); text (g, "RIGHT - VERT", 300, 1025, 12.5f);
-    listScale (g, "scFilter1", { "OFF", "90Hz", "180Hz", "MID" }, 47.0f, 11.0f);
-    listScale (g, "scFilter2", { "OFF", "90Hz", "180Hz", "MID" }, 47.0f, 11.0f);
-    text (g, "DC THRESHOLD", 490, 1006, 13.5f);
-    text (g, "LEFT - LAT", 416, 1025, 12.5f); text (g, "RIGHT - VERT", 563, 1025, 12.5f);
-    text (g, "DRY/WET", 830, 1006, 13.5f); text (g, "LEFT", 757, 1025, 12.5f); text (g, "RIGHT", 900, 1025, 12.5f);
-    text (g, "OUTPUT", 1104, 1006, 13.5f); text (g, "LEFT", 1027, 1025, 12.5f); text (g, "RIGHT", 1173, 1025, 12.5f);
-    for (auto* n : { "dcThr1", "dcThr2", "mix1", "mix2", "output1", "output2" })
-        numberScale (g, n, zeroTen, 47.0f, 10.5f, 0, 0, 0);
-    text (g, "IN", 658, 1048, 13.5f); text (g, "BYPASS", 657, 1138, 13.5f);
-
-    g.setColour (legend);
-    g.setFont (panelFont (20.0f).withExtraKerningFactor (0.08f));
-    g.drawText ("MODEL SA-670", Rectangle<float> (300, 28).withCentre ({ 880, 1172 }), Justification::centred);
+    g.setImageResamplingQuality (Graphics::highResamplingQuality);
+    g.drawImage (photo, getLocalBounds().toFloat());
 }
 
 //==============================================================================
@@ -377,34 +239,29 @@ void LampGlow::paint (Graphics& g)
 {
     const auto c = getLocalBounds().toFloat().getCentre();
     const float lv = jlimit (0.0f, 1.0f, level + flicker);
+    const float rj = 15.0f;
 
     // light spilling onto the paint around the bezel
     if (lv > 0.01f)
     {
-        ColourGradient spill (Colour (0xffff3a1e).withAlpha (0.22f * lv), c.x, c.y,
+        ColourGradient spill (Colour (0xffff3a1e).withAlpha (0.20f * lv), c.x, c.y,
                               Colour (0xffff3a1e).withAlpha (0.0f), c.x + 70.0f, c.y, true);
         g.setGradientFill (spill);
         g.fillEllipse (c.x - 70, c.y - 70, 140, 140);
-    }
-
-    // faceted jewel
-    const float rj = 17.5f;
-    Rectangle<float> jewel (c.x - rj, c.y - rj, rj * 2, rj * 2);
-    ColourGradient jg (Colour (0xff5a1410).interpolatedWith (Colour (0xffff8a70), lv), c.x - rj * 0.3f, c.y - rj * 0.4f,
-                       Colour (0xff1e0403).interpolatedWith (Colour (0xffa30a06), lv), c.x + rj, c.y + rj, true);
-    g.setGradientFill (jg);
-    g.fillEllipse (jewel);
-    g.setColour (Colours::black.withAlpha (0.28f));
-    for (int i = 0; i < 6; ++i)
-        g.drawLine (Line<float> (polar (c, rj * 0.25f, 60.0f * (float) i), polar (c, rj, 60.0f * (float) i + 30.0f)), 0.7f);
-    g.drawEllipse (jewel.reduced (rj * 0.5f), 0.7f);
-    if (lv > 0.01f)
-    {
-        ColourGradient core (Colour (0xffffd0b0).withAlpha (0.55f * lv), c.x, c.y, Colours::transparentWhite, c.x + rj * 0.7f, c.y, true);
+        // hot filament core behind the jewel
+        ColourGradient core (Colour (0xffffc6a0).withAlpha (0.30f * lv), c.x, c.y, Colours::transparentWhite, c.x + rj * 0.8f, c.y, true);
         g.setGradientFill (core);
-        g.fillEllipse (jewel.reduced (rj * 0.25f));
+        g.fillEllipse (c.x - rj, c.y - rj, rj * 2, rj * 2);
     }
-    g.setColour (Colours::white.withAlpha (0.25f + 0.35f * lv));
-    g.fillEllipse (c.x - rj * 0.5f, c.y - rj * 0.6f, rj * 0.45f, rj * 0.32f);
+    // unlit: the jewel goes dark (the photo shows it lit)
+    if (lv < 0.99f)
+    {
+        ColourGradient off (Colour (0xff2a0606).withAlpha (0.88f * (1.0f - lv)), c.x, c.y,
+                            Colour (0xff0e0202).withAlpha (0.80f * (1.0f - lv)), c.x + rj, c.y + rj, true);
+        g.setGradientFill (off);
+        g.fillEllipse (c.x - rj, c.y - rj, rj * 2, rj * 2);
+        g.setColour (Colours::white.withAlpha (0.16f * (1.0f - lv)));
+        g.fillEllipse (c.x - rj * 0.5f, c.y - rj * 0.6f, rj * 0.45f, rj * 0.3f);
+    }
 }
 } // namespace sa670::ui
